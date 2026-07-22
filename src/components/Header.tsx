@@ -9,6 +9,7 @@ import {
   SafeAreaView,
   Dimensions,
 } from 'react-native';
+import { router } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSavings } from '@/context/SavingsContext';
 
@@ -61,12 +62,16 @@ export function Header() {
 
   return (
     <View style={styles.header}>
-      {/* Nice Circular Wallet Logo Badge */}
-      <View style={styles.logoBadgeContainer}>
+      {/* Clickable House (Home) Logo Badge */}
+      <TouchableOpacity
+        style={styles.logoBadgeContainer}
+        onPress={() => router.push('/')}
+        activeOpacity={0.7}
+      >
         <View style={styles.walletLogo}>
-          <MaterialIcons name="account-balance-wallet" size={20} color="#f6bd60" />
+          <MaterialIcons name="home" size={22} color="#ffffff" />
         </View>
-      </View>
+      </TouchableOpacity>
 
       {/* Clickable Month Title Switcher */}
       <TouchableOpacity
