@@ -1,0 +1,17 @@
+{
+  "short_name": "Ahorros",
+  "name": "Mis Ahorros y Huchas",
+  "icons": [
+    {
+      "src": "apple-touch-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/ahorros-app/",
+  "background_color": "#f7ede2",
+  "theme_color": "#f7ede2",
+  "display": "standalone",
+  "orientation": "portrait"
+}
