@@ -11,7 +11,6 @@ import {
   SafeAreaView,
   StatusBar,
   Dimensions,
-  Alert,
   Keyboard,
   TouchableWithoutFeedback,
   Platform,
@@ -20,6 +19,7 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSavings, Transaction, CategoryBudget } from '@/context/SavingsContext';
 import { Header } from '@/components/Header';
+import { customAlert } from '@/utils/alert';
 
 export default function DashboardScreen() {
   const {
@@ -84,7 +84,7 @@ export default function DashboardScreen() {
   const handleSaveTransaction = async () => {
     const numAmount = parseFloat(amount);
     if (isNaN(numAmount) || numAmount <= 0 || !description.trim()) {
-      Alert.alert('Error', 'Por favor introduce un importe y descripción válidos.');
+      customAlert('Error', 'Por favor introduce un importe y descripción válidos.');
       return;
     }
 
@@ -93,7 +93,7 @@ export default function DashboardScreen() {
       if (activeBudget) {
         const remaining = activeBudget.limit - activeBudget.spent;
         if (numAmount > remaining) {
-          Alert.alert(
+          customAlert(
             '¡Presupuesto Superado!',
             `Este gasto (${formatCurrency(numAmount)}) supera el presupuesto restante de esta categoría (${formatCurrency(remaining)}).`
           );
@@ -128,7 +128,7 @@ export default function DashboardScreen() {
   const handleSaveCategory = async () => {
     const numLimit = parseFloat(catLimit);
     if (!catName.trim() || isNaN(numLimit) || numLimit <= 0) {
-      Alert.alert('Error', 'Por favor introduce un nombre y presupuesto válidos.');
+      customAlert('Error', 'Por favor introduce un nombre y presupuesto válidos.');
       return;
     }
 
@@ -152,7 +152,7 @@ export default function DashboardScreen() {
   const handleSaveStartingBalance = async () => {
     const numBalance = parseFloat(editedStartingBalance);
     if (isNaN(numBalance) || numBalance < 0) {
-      Alert.alert('Error', 'Introduce una cantidad de presupuesto válida.');
+      customAlert('Error', 'Introduce una cantidad de presupuesto válida.');
       return;
     }
 

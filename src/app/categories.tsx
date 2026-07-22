@@ -9,11 +9,11 @@ import {
   TouchableOpacity,
   Modal,
   TextInput,
-  Alert,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSavings, CategoryBudget } from '@/context/SavingsContext';
 import { Header } from '@/components/Header';
+import { customAlert, customConfirm } from '@/utils/alert';
 
 export default function CategoriesScreen() {
   const {
@@ -89,7 +89,7 @@ export default function CategoriesScreen() {
   const handleSaveCategory = async () => {
     const numLimit = parseFloat(limit);
     if (!name.trim() || isNaN(numLimit) || numLimit <= 0) {
-      Alert.alert('Error', 'Por favor introduce un nombre y presupuesto válidos.');
+      customAlert('Error', 'Por favor introduce un nombre y presupuesto válidos.');
       return;
     }
 
@@ -108,7 +108,7 @@ export default function CategoriesScreen() {
       
       // Verify duplicate key
       if (categoryBudgets.some((b) => b.category === generatedKey)) {
-        Alert.alert('Error', 'Ya existe una categoría con un nombre similar.');
+        customAlert('Error', 'Ya existe una categoría con un nombre similar.');
         return;
       }
 
@@ -125,19 +125,12 @@ export default function CategoriesScreen() {
   };
 
   const handleDeleteCategory = (cat: CategoryBudget) => {
-    Alert.alert(
+    customConfirm(
       'Eliminar Categoría',
       `¿Estás seguro de que quieres eliminar la categoría "${cat.name}"? Los movimientos de esta categoría se marcarán como "Otros".`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Eliminar',
-          style: 'destructive',
-          onPress: async () => {
-            await deleteCategory(cat.category);
-          },
-        },
-      ]
+      async () => {
+        await deleteCategory(cat.category);
+      }
     );
   };
 

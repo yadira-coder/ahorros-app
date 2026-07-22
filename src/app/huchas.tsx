@@ -9,11 +9,11 @@ import {
   TouchableOpacity,
   Modal,
   TextInput,
-  Alert,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSavings, SavingGoal } from '@/context/SavingsContext';
 import { Header } from '@/components/Header';
+import { customAlert, customConfirm } from '@/utils/alert';
 
 export default function HuchasScreen() {
   const {
@@ -62,7 +62,7 @@ export default function HuchasScreen() {
   const handleSaveGoal = async () => {
     const numTarget = parseFloat(target);
     if (!title.trim() || isNaN(numTarget) || numTarget <= 0) {
-      Alert.alert('Error', 'Por favor introduce un nombre y meta válidos.');
+      customAlert('Error', 'Por favor introduce un nombre y meta válidos.');
       return;
     }
 
@@ -85,19 +85,12 @@ export default function HuchasScreen() {
   };
 
   const handleDeleteGoal = (goal: SavingGoal) => {
-    Alert.alert(
+    customConfirm(
       'Eliminar Hucha',
       `¿Estás seguro de que quieres eliminar la hucha "${goal.title}"? El dinero guardado aquí volverá a tu saldo general.`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Eliminar',
-          style: 'destructive',
-          onPress: async () => {
-            await deleteSavingGoal(goal.id);
-          },
-        },
-      ]
+      async () => {
+        await deleteSavingGoal(goal.id);
+      }
     );
   };
 
@@ -111,21 +104,17 @@ export default function HuchasScreen() {
   const handleExecuteAction = async () => {
     const amount = parseFloat(actionAmount);
     if (isNaN(amount) || amount <= 0) {
-      Alert.alert('Error', 'Introduce una cantidad válida.');
+      customAlert('Error', 'Introduce una cantidad válida.');
       return;
     }
 
     if (!selectedGoal) return;
 
     if (actionType === 'deposit') {
-      if (amount > balance) {
-        Alert.alert('Saldo Insuficiente', 'No puedes aportar más de tu saldo disponible.');
-        return;
-      }
       await updateSavingGoalProgress(selectedGoal.id, amount);
     } else {
       if (amount > selectedGoal.current) {
-        Alert.alert('Error', 'No puedes retirar más de lo ahorrado en esta hucha.');
+        customAlert('Error', 'No puedes retirar más de lo ahorrado en esta hucha.');
         return;
       }
       await updateSavingGoalProgress(selectedGoal.id, -amount);
