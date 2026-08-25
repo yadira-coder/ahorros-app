@@ -30,6 +30,24 @@ export default function SettingsScreen() {
     customAlert('Meta Actualizada', `Tu meta mensual de ahorro ahora es de ${formatCurrency(numGoal)}.`);
   };
 
+  const handleForceUpdateApp = () => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      if ('caches' in window) {
+        caches.keys().then((names) => {
+          names.forEach((name) => caches.delete(name));
+        });
+      }
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then((registrations) => {
+          registrations.forEach((reg) => reg.unregister());
+        });
+      }
+      window.location.reload();
+    } else {
+      customAlert('Actualizar App', 'La aplicación se actualizará automáticamente al reiniciarla.');
+    }
+  };
+
   const handleReset = () => {
     customConfirm(
       'Restablecer Base de Datos',
@@ -79,6 +97,22 @@ export default function SettingsScreen() {
 
           <TouchableOpacity style={styles.saveBtn} onPress={handleUpdateGoal}>
             <Text style={styles.saveBtnText}>Actualizar Meta</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Force Update App Shell Card */}
+        <View style={styles.glassCard}>
+          <Text style={styles.cardTitle}>Actualizar Versión de la App</Text>
+          <Text style={styles.cardSubtitle}>
+            Si tu acceso directo de la pantalla de inicio muestra la versión antigua, pulsa este botón para forzar la recarga a la versión más reciente sin perder ninguno de tus datos guardados.
+          </Text>
+
+          <TouchableOpacity
+            style={[styles.saveBtn, { backgroundColor: '#84a59d', flexDirection: 'row', justifyContent: 'center' }]}
+            onPress={handleForceUpdateApp}
+          >
+            <MaterialIcons name="refresh" size={20} color="#ffffff" style={{ marginRight: 8 }} />
+            <Text style={styles.saveBtnText}>Cargar Última Versión</Text>
           </TouchableOpacity>
         </View>
 
