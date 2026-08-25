@@ -30,8 +30,10 @@ const MONTH_NAMES: { [key: string]: string } = {
   '12': 'Diciembre',
 };
 
-// Generates a selection range: 3 months before and 6 months after July 2026
 const AVAILABLE_MONTHS = [
+  { label: 'Enero 2026', value: '2026-01' },
+  { label: 'Febrero 2026', value: '2026-02' },
+  { label: 'Marzo 2026', value: '2026-03' },
   { label: 'Abril 2026', value: '2026-04' },
   { label: 'Mayo 2026', value: '2026-05' },
   { label: 'Junio 2026', value: '2026-06' },
@@ -42,6 +44,17 @@ const AVAILABLE_MONTHS = [
   { label: 'Noviembre 2026', value: '2026-11' },
   { label: 'Diciembre 2026', value: '2026-12' },
   { label: 'Enero 2027', value: '2027-01' },
+  { label: 'Febrero 2027', value: '2027-02' },
+  { label: 'Marzo 2027', value: '2027-03' },
+  { label: 'Abril 2027', value: '2027-04' },
+  { label: 'Mayo 2027', value: '2027-05' },
+  { label: 'Junio 2027', value: '2027-06' },
+  { label: 'Julio 2027', value: '2027-07' },
+  { label: 'Agosto 2027', value: '2027-08' },
+  { label: 'Septiembre 2027', value: '2027-09' },
+  { label: 'Octubre 2027', value: '2027-10' },
+  { label: 'Noviembre 2027', value: '2027-11' },
+  { label: 'Diciembre 2027', value: '2027-12' },
 ];
 
 export function Header() {
@@ -61,90 +74,95 @@ export function Header() {
   };
 
   return (
-    <View style={styles.header}>
-      {/* Clickable House (Home) Logo Badge */}
-      <TouchableOpacity
-        style={styles.logoBadgeContainer}
-        onPress={() => router.push('/')}
-        activeOpacity={0.7}
-      >
-        <View style={styles.walletLogo}>
-          <MaterialIcons name="home" size={22} color="#ffffff" />
-        </View>
-      </TouchableOpacity>
-
-      {/* Clickable Month Title Switcher */}
-      <TouchableOpacity
-        style={styles.monthSelectorBtn}
-        onPress={() => setModalVisible(true)}
-        activeOpacity={0.7}
-      >
-        <Text style={styles.headerTitle}>{getDisplayMonth(currentMonth)}</Text>
-        <MaterialIcons name="arrow-drop-down" size={24} color="#84a59d" style={styles.arrowIcon} />
-      </TouchableOpacity>
-
-      {/* Calendar Button */}
-      <TouchableOpacity
-        style={styles.calendarButton}
-        onPress={() => setModalVisible(true)}
-      >
-        <MaterialIcons name="calendar-today" size={20} color="#84a59d" />
-      </TouchableOpacity>
-
-      {/* Selector Modal */}
-      <Modal
-        animationType="fade"
-        transparent={true}
-        visible={modalVisible}
-        onRequestClose={() => setModalVisible(false)}
-      >
+    <SafeAreaView style={styles.safeHeaderArea}>
+      <View style={styles.header}>
+        {/* Clickable House (Home) Logo Badge */}
         <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPressOut={() => setModalVisible(false)}
+          style={styles.logoBadgeContainer}
+          onPress={() => router.push('/')}
+          activeOpacity={0.7}
         >
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Seleccionar Mes</Text>
-            <Text style={styles.modalSubtitle}>
-              Las categorías y transacciones se adaptarán al mes seleccionado.
-            </Text>
-
-            <FlatList
-              data={AVAILABLE_MONTHS}
-              keyExtractor={(item) => item.value}
-              numColumns={2}
-              columnWrapperStyle={styles.row}
-              renderItem={({ item }) => {
-                const isSelected = item.value === currentMonth;
-                return (
-                  <TouchableOpacity
-                    style={[
-                      styles.monthBtn,
-                      isSelected && styles.monthBtnSelected,
-                    ]}
-                    onPress={() => handleSelectMonth(item.value)}
-                  >
-                    <Text
-                      style={[
-                        styles.monthBtnText,
-                        isSelected && styles.monthBtnTextSelected,
-                      ]}
-                    >
-                      {item.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              }}
-              contentContainerStyle={styles.listContainer}
-            />
+          <View style={styles.walletLogo}>
+            <MaterialIcons name="home" size={22} color="#ffffff" />
           </View>
         </TouchableOpacity>
-      </Modal>
-    </View>
+
+        {/* Clickable Month Title Switcher */}
+        <TouchableOpacity
+          style={styles.monthSelectorBtn}
+          onPress={() => setModalVisible(true)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.headerTitle}>{getDisplayMonth(currentMonth)}</Text>
+          <MaterialIcons name="arrow-drop-down" size={24} color="#84a59d" style={styles.arrowIcon} />
+        </TouchableOpacity>
+
+        {/* Calendar Button */}
+        <TouchableOpacity
+          style={styles.calendarButton}
+          onPress={() => setModalVisible(true)}
+        >
+          <MaterialIcons name="calendar-today" size={20} color="#84a59d" />
+        </TouchableOpacity>
+
+        {/* Selector Modal */}
+        <Modal
+          animationType="fade"
+          transparent={true}
+          visible={modalVisible}
+          onRequestClose={() => setModalVisible(false)}
+        >
+          <TouchableOpacity
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPressOut={() => setModalVisible(false)}
+          >
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>Seleccionar Mes</Text>
+              <Text style={styles.modalSubtitle}>
+                Las categorías y transacciones se adaptarán al mes seleccionado.
+              </Text>
+
+              <FlatList
+                data={AVAILABLE_MONTHS}
+                keyExtractor={(item) => item.value}
+                numColumns={2}
+                columnWrapperStyle={styles.row}
+                renderItem={({ item }) => {
+                  const isSelected = item.value === currentMonth;
+                  return (
+                    <TouchableOpacity
+                      style={[
+                        styles.monthBtn,
+                        isSelected && styles.monthBtnSelected,
+                      ]}
+                      onPress={() => handleSelectMonth(item.value)}
+                    >
+                      <Text
+                        style={[
+                          styles.monthBtnText,
+                          isSelected && styles.monthBtnTextSelected,
+                        ]}
+                      >
+                        {item.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                }}
+                contentContainerStyle={styles.listContainer}
+              />
+            </View>
+          </TouchableOpacity>
+        </Modal>
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeHeaderArea: {
+    backgroundColor: 'rgba(247, 237, 226, 0.85)',
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

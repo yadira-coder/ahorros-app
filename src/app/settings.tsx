@@ -8,42 +8,37 @@ import {
   StatusBar,
   TouchableOpacity,
   TextInput,
-  Alert,
+  Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSavings } from '@/context/SavingsContext';
 import { Header } from '@/components/Header';
+import { customAlert, customConfirm } from '@/utils/alert';
+import { parseFormattedAmount } from '@/utils/format';
 
 export default function SettingsScreen() {
   const { savingGoal, updateMonthlyGoal, resetDatabase } = useSavings();
   const [newGoal, setNewGoal] = useState(savingGoal.toString());
 
   const handleUpdateGoal = async () => {
-    const numGoal = parseFloat(newGoal);
-    if (isNaN(numGoal) || numGoal <= 0) {
-      Alert.alert('Error', 'Por favor introduce una cantidad de meta válida.');
+    const numGoal = parseFormattedAmount(newGoal);
+    if (numGoal <= 0) {
+      customAlert('Error', 'Por favor introduce una cantidad de meta válida.');
       return;
     }
     await updateMonthlyGoal(numGoal);
-    Alert.alert('Meta Actualizada', `Tu meta mensual de ahorro ahora es de ${formatCurrency(numGoal)}.`);
+    customAlert('Meta Actualizada', `Tu meta mensual de ahorro ahora es de ${formatCurrency(numGoal)}.`);
   };
 
   const handleReset = () => {
-    Alert.alert(
+    customConfirm(
       'Restablecer Base de Datos',
       '¿Estás seguro de que quieres restablecer la app? Todos tus movimientos y metas se borrarán y volverán a los valores por defecto.',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Restablecer',
-          style: 'destructive',
-          onPress: async () => {
-            await resetDatabase();
-            setNewGoal('1000');
-            Alert.alert('Restablecido', 'La base de datos ha sido restablecida.');
-          },
-        },
-      ]
+      async () => {
+        await resetDatabase();
+        setNewGoal('500');
+        customAlert('Restablecido', 'La base de datos ha sido restablecida.');
+      }
     );
   };
 
@@ -73,7 +68,8 @@ export default function SettingsScreen() {
             <Text style={styles.currencySymbol}>€</Text>
             <TextInput
               style={styles.textInput}
-              keyboardType="numeric"
+              keyboardType={Platform.OS === 'web' ? ('default' as any) : 'decimal-pad'}
+              inputMode="decimal"
               value={newGoal}
               onChangeText={setNewGoal}
               placeholder="1000"
@@ -190,7 +186,8 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingVertical: 20,
+    paddingTop: 20,
+    paddingBottom: 140,
     gap: 20,
   },
   glassCard: {

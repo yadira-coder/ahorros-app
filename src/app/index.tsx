@@ -19,7 +19,8 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSavings, Transaction, CategoryBudget } from '@/context/SavingsContext';
 import { Header } from '@/components/Header';
-import { customAlert } from '@/utils/alert';
+import { customAlert, customConfirm } from '@/utils/alert';
+import { parseFormattedAmount } from '@/utils/format';
 
 export default function DashboardScreen() {
   const {
@@ -27,10 +28,16 @@ export default function DashboardScreen() {
     startingBalance,
     transactions,
     addTransaction,
+    updateTransaction,
+    deleteTransaction,
+    clearMonthTransactions,
     categoryBudgets,
+    totalCategoryLimits,
+    topSpendingCategory,
     monthTransactions,
     updateCategory,
     updateStartingBalance,
+    toggleCategoryLimitReached,
   } = useSavings();
 
   // Transaction Modal state
@@ -41,6 +48,14 @@ export default function DashboardScreen() {
   const [category, setCategory] = useState('food');
   const [isRecurring, setIsRecurring] = useState(false);
 
+  // Transaction Edit Modal state
+  const [editTxModalVisible, setEditTxModalVisible] = useState(false);
+  const [editingTx, setEditingTx] = useState<Transaction | null>(null);
+  const [editTxDescription, setEditTxDescription] = useState('');
+  const [editTxAmount, setEditTxAmount] = useState('');
+  const [editTxCategory, setEditTxCategory] = useState('');
+  const [editTxType, setEditTxType] = useState<'income' | 'expense'>('expense');
+
   // Category Edit Modal state (to edit categories directly from dashboard)
   const [catModalVisible, setCatModalVisible] = useState(false);
   const [editingCategory, setEditingCategory] = useState<CategoryBudget | null>(null);
@@ -48,10 +63,27 @@ export default function DashboardScreen() {
   const [catLimit, setCatLimit] = useState('');
   const [catColor, setCatColor] = useState('#84a59d');
   const [catIcon, setCatIcon] = useState('restaurant');
+  const [catIsTemporary, setCatIsTemporary] = useState(false);
 
   // Starting Balance Modal state
   const [balanceModalVisible, setBalanceModalVisible] = useState(false);
   const [editedStartingBalance, setEditedStartingBalance] = useState('');
+
+  // Dynamic category list for modal selector with 'other' fallback
+  const availableCategoryChips = React.useMemo(() => {
+    const list = [...categoryBudgets];
+    if (!list.some((c) => c.category === 'other')) {
+      list.push({
+        name: 'Sin categoría / Otros',
+        category: 'other',
+        limit: 200,
+        spent: 0,
+        color: '#504442',
+        icon: 'more-horiz',
+      });
+    }
+    return list;
+  }, [categoryBudgets]);
 
   // Filter recent transactions of the selected month (last 3)
   const recentTransactions = monthTransactions.slice(0, 3);
@@ -68,22 +100,47 @@ export default function DashboardScreen() {
   // Spent progress percentage
   const spentProgress = Math.max(0, Math.min(100, Math.round((monthExpenses / (startingBalance || 1)) * 100)));
 
-  // Categories list for transaction form
-  const categoriesList = [
-    { id: 'food', name: 'Comida', icon: 'restaurant', color: '#84a59d' },
-    { id: 'transport', name: 'Transporte', icon: 'directions-car', color: '#f6bd60' },
-    { id: 'home', name: 'Hogar', icon: 'home', color: '#775651' },
-    { id: 'shopping', name: 'Compras', icon: 'shopping-bag', color: '#f28482' },
-    { id: 'entertainment', name: 'Ocio', icon: 'confirmation-number', color: '#ba1a1a' },
-    { id: 'other', name: 'Otro', icon: 'more-horiz', color: '#504442' },
+  const colorsList = [
+    '#84a59d',
+    '#f5cac3',
+    '#f6bd60',
+    '#f28482',
+    '#775651',
+    '#ba1a1a',
+    '#b8b8ff',
+    '#b27092',
+    '#bcb8b1',
+    '#a2d2ff',
+    '#d4a373',
   ];
 
-  const colorsList = ['#84a59d', '#f5cac3', '#f6bd60', '#f28482', '#775651', '#ba1a1a'];
-  const iconsList = ['restaurant', 'home', 'directions-car', 'shopping-bag', 'confirmation-number', 'fitness-center', 'movie', 'flight', 'work'];
+  const iconsList = [
+    'pets',                 // Perro / Mascota
+    'medication',           // Suplementos alimenticios
+    'tv',                   // Plataformas TV / Streaming
+    'wifi',                 // Internet
+    'smoking-rooms',        // Tabaco
+    'celebration',          // Festivo
+    'medical-services',     // Médico
+    'favorite',             // Corazón
+    'warning',              // Imprevistos
+    'restaurant',           // Comida
+    'home',                 // Hogar
+    'directions-car',       // Transporte
+    'shopping-bag',         // Compras
+    'confirmation-number',  // Ocio
+    'fitness-center',       // Gimnasio
+    'movie',                // Cine
+    'school',               // Educación
+    'flight',               // Viajes
+    'work',                 // Trabajo
+    'savings',              // Huchas
+    'build',                // Reparaciones / Imprevistos
+  ];
 
   const handleSaveTransaction = async () => {
-    const numAmount = parseFloat(amount);
-    if (isNaN(numAmount) || numAmount <= 0 || !description.trim()) {
+    const numAmount = parseFormattedAmount(amount);
+    if (numAmount <= 0 || !description.trim()) {
       customAlert('Error', 'Por favor introduce un importe y descripción válidos.');
       return;
     }
@@ -105,7 +162,7 @@ export default function DashboardScreen() {
       description: description.trim(),
       amount: numAmount,
       type: txType,
-      category: txType === 'income' ? 'income' : category,
+      category: txType === 'income' ? 'income' : (category || 'other'),
       isRecurring,
     });
 
@@ -122,23 +179,44 @@ export default function DashboardScreen() {
     setCatLimit(cat.limit.toString());
     setCatColor(cat.color);
     setCatIcon(cat.icon);
+    setCatIsTemporary(!!cat.isTemporary);
     setCatModalVisible(true);
   };
 
+  const handleMarkLimitReached = async (cat: CategoryBudget) => {
+    const res = await toggleCategoryLimitReached(cat.category);
+    if (res.reached) {
+      customAlert(
+        '¡Presupuesto Alcanzado!',
+        `Se ha alcanzado el límite de ${formatCurrency(cat.limit)} para la categoría "${res.name}".`
+      );
+    } else {
+      customAlert(
+        'Límite Quitado',
+        `Se ha retirado el límite alcanzado para la categoría "${res.name}".`
+      );
+    }
+  };
+
   const handleSaveCategory = async () => {
-    const numLimit = parseFloat(catLimit);
-    if (!catName.trim() || isNaN(numLimit) || numLimit <= 0) {
+    const numLimit = parseFormattedAmount(catLimit);
+    if (!catName.trim() || numLimit <= 0) {
       customAlert('Error', 'Por favor introduce un nombre y presupuesto válidos.');
       return;
     }
 
     if (editingCategory) {
-      await updateCategory(editingCategory.category, {
-        name: catName.trim(),
-        limit: numLimit,
-        color: catColor,
-        icon: catIcon,
-      });
+      await updateCategory(
+        editingCategory.category,
+        {
+          name: catName.trim(),
+          limit: numLimit,
+          color: catColor,
+          icon: catIcon,
+          isTemporary: catIsTemporary,
+        },
+        'month' // Only update for the current month when edited from Resumen!
+      );
     }
 
     setCatModalVisible(false);
@@ -150,14 +228,72 @@ export default function DashboardScreen() {
   };
 
   const handleSaveStartingBalance = async () => {
-    const numBalance = parseFloat(editedStartingBalance);
-    if (isNaN(numBalance) || numBalance < 0) {
+    const numBalance = parseFormattedAmount(editedStartingBalance);
+    if (numBalance < 0) {
       customAlert('Error', 'Introduce una cantidad de presupuesto válida.');
+      return;
+    }
+
+    if (numBalance < totalCategoryLimits) {
+      customAlert(
+        'Presupuesto Insuficiente',
+        `No puedes establecer un saldo mensual de ${formatCurrency(numBalance)} porque es menor que la suma de los presupuestos de tus categorías (${formatCurrency(totalCategoryLimits)}).\n\nAumenta el saldo o edita los límites de tus categorías.`
+      );
       return;
     }
 
     await updateStartingBalance(numBalance);
     setBalanceModalVisible(false);
+  };
+
+  const handleOpenEditTx = (tx: Transaction) => {
+    setEditingTx(tx);
+    setEditTxDescription(tx.description);
+    setEditTxAmount(tx.amount.toString());
+    setEditTxCategory(tx.category);
+    setEditTxType(tx.type === 'saving' ? 'expense' : tx.type);
+    setEditTxModalVisible(true);
+  };
+
+  const handleSaveEditTx = async () => {
+    if (!editingTx) return;
+    const numAmount = parseFormattedAmount(editTxAmount);
+    if (numAmount <= 0 || !editTxDescription.trim()) {
+      customAlert('Error', 'Por favor introduce una descripción y un importe válidos.');
+      return;
+    }
+
+    await updateTransaction(editingTx.id, {
+      description: editTxDescription.trim(),
+      amount: numAmount,
+      category: editTxType === 'income' ? 'income' : (editTxCategory || 'other'),
+      type: editTxType,
+    });
+
+    setEditTxModalVisible(false);
+    customAlert('Movimiento Modificado', 'El movimiento ha sido actualizado correctamente.');
+  };
+
+  const handleDeleteTx = (tx: Transaction) => {
+    customConfirm(
+      'Eliminar Movimiento',
+      `¿Estás seguro de borrar el movimiento "${tx.description}" por ${formatCurrency(tx.amount)}?`,
+      async () => {
+        await deleteTransaction(tx.id);
+        customAlert('Movimiento Borrado', 'El movimiento se ha eliminado correctamente.');
+      }
+    );
+  };
+
+  const handleClearAllMonthTxs = () => {
+    customConfirm(
+      'Vaciar Movimientos del Mes',
+      `¿Deseas borrar todos los gastos e ingresos registrados en este mes y poner los presupuestos consumidos a 0 €?`,
+      async () => {
+        await clearMonthTransactions();
+        customAlert('Mes Vaciado', 'Se han eliminado todos los movimientos de este mes.');
+      }
+    );
   };
 
   const formatCurrency = (val: number) => {
@@ -168,29 +304,20 @@ export default function DashboardScreen() {
     if (type === 'income') return { icon: 'arrow-upward', color: '#84a59d', bg: 'rgba(132,165,157,0.15)' };
     if (type === 'saving') return { icon: 'shield', color: '#f5cac3', bg: 'rgba(245,202,195,0.2)' };
     
-    const customMatch = categoryBudgets.find((c) => c.category === catName);
+    const customMatch = availableCategoryChips.find((c) => c.category === catName);
     if (customMatch) {
       return { icon: customMatch.icon, color: customMatch.color, bg: `${customMatch.color}22` };
     }
 
-    const matched = categoriesList.find((c) => c.id === catName);
-    return matched
-      ? { icon: matched.icon, color: matched.color, bg: `${matched.color}22` }
-      : { icon: 'help-outline', color: '#504442', bg: 'rgba(80,68,66,0.1)' };
+    return { icon: 'help-outline', color: '#504442', bg: 'rgba(80,68,66,0.1)' };
   };
 
   const formatTxDate = (dateStr: string) => {
-    const d = new Date(dateStr);
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    if (d.toDateString() === today.toDateString()) {
-      return `Hoy, ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-    } else if (d.toDateString() === yesterday.toDateString()) {
-      return `Ayer, ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-    } else {
+    try {
+      const d = new Date(dateStr);
       return d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+    } catch {
+      return '';
     }
   };
 
@@ -205,54 +332,73 @@ export default function DashboardScreen() {
       <Header />
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Main Available Spending Balance Card */}
-        <TouchableOpacity
-          style={styles.glassCard}
-          onPress={handleOpenEditStartingBalance}
-          activeOpacity={0.8}
-        >
+        {/* Card Presupuesto Disponible del Mes */}
+        <View style={styles.glassCard}>
           <View style={styles.cardHeaderRow}>
-            <View>
-              <Text style={styles.cardLabel}>Saldo para el mes</Text>
-              <Text style={styles.cardSublabel}>Disponible este mes (Toca para editar)</Text>
+            <View style={{ flex: 1, marginRight: 8 }}>
+              <Text style={styles.cardLabel}>Saldo del Mes</Text>
+              <Text style={styles.cardSublabel}>Toca el icono de lápiz para editar el presupuesto inicial</Text>
             </View>
-            <View style={styles.editIconBadge}>
-              <MaterialIcons name="edit" size={16} color="#775651" />
-            </View>
+            <TouchableOpacity onPress={handleOpenEditStartingBalance} style={styles.editIconBadge}>
+              <MaterialIcons name="edit" size={18} color="#775651" />
+            </TouchableOpacity>
           </View>
 
-          {/* Progress Ring Visual */}
-          <View style={styles.progressContainer}>
+          {/* Large Progress Circle displaying Available Balance */}
+          <TouchableOpacity style={styles.progressContainer} onPress={handleOpenEditStartingBalance} activeOpacity={0.8}>
             <View style={styles.progressCircle}>
-              <Text style={styles.progressLabel}>Disponible</Text>
+              <Text style={styles.progressLabel}>DISPONIBLE</Text>
               <Text style={styles.progressAmount}>{formatCurrency(balance)}</Text>
             </View>
-          </View>
 
-          {/* Budget Limit Tracker */}
-          <View style={styles.goalIndicatorContainer}>
-            <View style={styles.goalBulletRow}>
-              <View style={styles.bulletContainer}>
-                <View style={[styles.bullet, { backgroundColor: '#f6bd60' }]} />
-                <Text style={styles.goalText}>Fondo Inicial: {formatCurrency(startingBalance)}</Text>
+            <View style={styles.monthRequirementBanner}>
+              <MaterialIcons name="info-outline" size={16} color="#775651" style={{ marginRight: 6 }} />
+              <Text style={styles.monthRequirementText}>
+                Tu mes requiere de <Text style={{ fontWeight: '700', color: '#775651' }}>{formatCurrency(totalCategoryLimits)}</Text>
+              </Text>
+            </View>
+
+            <View style={styles.goalIndicatorContainer}>
+              <View style={styles.budgetMetricsGrid}>
+                <View style={styles.budgetMetricBox}>
+                  <Text style={styles.metricBoxLabel}>Necesario para hacer el mes</Text>
+                  <Text style={styles.metricBoxValue}>{formatCurrency(totalCategoryLimits)}</Text>
+                </View>
+                <View style={styles.metricBoxDivider} />
+                <View style={styles.budgetMetricBox}>
+                  <Text style={styles.metricBoxLabel}>Gastado</Text>
+                  <Text style={[styles.metricBoxValue, { color: '#ba1a1a' }]}>{formatCurrency(monthExpenses)}</Text>
+                </View>
+                <View style={styles.metricBoxDivider} />
+                <View style={styles.budgetMetricBox}>
+                  <Text style={styles.metricBoxLabel}>Fondo Inicial</Text>
+                  <Text style={styles.metricBoxValue}>{formatCurrency(startingBalance)}</Text>
+                </View>
               </View>
-              <Text style={styles.percentageText}>{spentProgress}% gastado</Text>
-            </View>
-            <View style={styles.progressBarBg}>
-              <View
-                style={[
-                  styles.progressBarFill,
-                  { width: `${spentProgress}%`, backgroundColor: spentProgress >= 90 ? '#ba1a1a' : '#84a59d' },
-                ]}
-              />
-            </View>
-          </View>
-        </TouchableOpacity>
 
-        {/* Flujo de Caja (Income vs Expense) */}
+              <View style={styles.goalBulletRow}>
+                <Text style={styles.goalText}>Progreso de Consumo</Text>
+                <Text style={styles.percentageText}>{spentProgress}% gastado</Text>
+              </View>
+              <View style={styles.miniProgressBarBg}>
+                <View
+                  style={[
+                    styles.miniProgressBarFill,
+                    {
+                      width: `${spentProgress}%`,
+                      backgroundColor: spentProgress >= 90 ? '#ba1a1a' : '#84a59d',
+                    },
+                  ]}
+                />
+              </View>
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        {/* Flujo de Caja Card */}
         <View style={styles.glassCard}>
           <Text style={styles.sectionTitle}>Flujo de Caja</Text>
-
+          
           <View style={styles.cashFlowRow}>
             <View style={styles.cashFlowHeader}>
               <View style={styles.flowLabelGroup}>
@@ -266,7 +412,7 @@ export default function DashboardScreen() {
                 style={[
                   styles.progressBarFill,
                   {
-                    width: `${monthIncome > 0 ? 100 : 0}%`,
+                    width: `${monthIncome > 0 ? Math.min(100, (monthIncome / (startingBalance || 1)) * 100) : 0}%`,
                     backgroundColor: '#84a59d',
                   },
                 ]}
@@ -296,10 +442,46 @@ export default function DashboardScreen() {
           </View>
         </View>
 
+        {/* Categoría de Mayor Gasto Highlight Card */}
+        {topSpendingCategory && topSpendingCategory.spent > 0 && (
+          <View style={[styles.glassCard, { borderColor: `${topSpendingCategory.color}55` }]}>
+            <View style={styles.topCategoryHeader}>
+              <View style={[styles.topCategoryIconBg, { backgroundColor: `${topSpendingCategory.color}22` }]}>
+                <MaterialIcons name={topSpendingCategory.icon as any} size={24} color={topSpendingCategory.color} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <View style={styles.topCategoryTitleRow}>
+                  <Text style={styles.topCategorySubtitle}>Categoría con Mayor Gasto</Text>
+                  <Text style={styles.trophyIcon}>🏆</Text>
+                </View>
+                <Text style={styles.topCategoryName}>{topSpendingCategory.name}</Text>
+              </View>
+              <View style={[styles.topCategoryBadge, { backgroundColor: `${topSpendingCategory.color}25` }]}>
+                <Text style={[styles.topCategoryBadgeText, { color: topSpendingCategory.color }]}>
+                  {formatCurrency(topSpendingCategory.spent)}
+                </Text>
+              </View>
+            </View>
+            <Text style={styles.topCategoryPercentText}>
+              {monthExpenses > 0
+                ? `Acumula el ${Math.round((topSpendingCategory.spent / monthExpenses) * 100)}% de todos tus gastos de este mes (${formatCurrency(topSpendingCategory.spent)} de ${formatCurrency(monthExpenses)}).`
+                : ''}
+            </Text>
+          </View>
+        )}
+
         {/* Presupuestos del Mes (Categories list on Dashboard) */}
         <View style={styles.glassCard}>
-          <Text style={styles.sectionTitle}>Presupuestos de este Mes</Text>
-          <Text style={styles.sectionSubtitle}>Pulsa sobre una categoría para modificar su presupuesto.</Text>
+          <View style={styles.sectionHeaderRow}>
+            <View style={{ flex: 1, marginRight: 8 }}>
+              <Text style={styles.sectionTitle}>Presupuestos de este Mes</Text>
+              <Text style={styles.sectionSubtitle}>Toca una categoría para editarla o pulsa "Límite alcanzado".</Text>
+            </View>
+            <View style={styles.totalLimitsBadge}>
+              <Text style={styles.totalLimitsBadgeLabel}>Suma Límites</Text>
+              <Text style={styles.totalLimitsBadgeValue}>{formatCurrency(totalCategoryLimits)}</Text>
+            </View>
+          </View>
           
           {categoryBudgets.length === 0 ? (
             <Text style={styles.emptyText}>No hay categorías configuradas para este mes.</Text>
@@ -308,25 +490,32 @@ export default function DashboardScreen() {
               {categoryBudgets.map((cat, idx) => {
                 const percentage = Math.min(100, Math.round((cat.spent / (cat.limit || 1)) * 100));
                 const remaining = cat.limit - cat.spent;
-                const progressColor = cat.spent >= cat.limit ? '#775651' : (percentage >= 90 ? '#ba1a1a' : cat.color);
+                const isLimitReached = cat.spent >= cat.limit;
+                const progressColor = isLimitReached ? '#775651' : (percentage >= 90 ? '#ba1a1a' : cat.color);
+                const isTopCategory = topSpendingCategory && topSpendingCategory.category === cat.category && cat.spent > 0;
 
                 return (
-                  <TouchableOpacity
-                    key={cat.category + idx}
-                    style={styles.dashboardCategoryItem}
-                    onPress={() => handleOpenEditCategory(cat)}
-                  >
-                    <View style={styles.dashboardCategoryTop}>
+                  <View key={cat.category + idx} style={styles.dashboardCategoryItem}>
+                    <TouchableOpacity
+                      style={styles.dashboardCategoryTop}
+                      onPress={() => handleOpenEditCategory(cat)}
+                      activeOpacity={0.7}
+                    >
                       <View style={styles.dashboardCategoryLeft}>
                         <View style={[styles.miniIconBg, { backgroundColor: `${progressColor}22` }]}>
                           <MaterialIcons name={cat.icon as any} size={16} color={progressColor} />
                         </View>
-                        <Text style={styles.dashboardCategoryName}>{cat.name}</Text>
+                        <Text style={styles.dashboardCategoryName} numberOfLines={1} ellipsizeMode="tail">{cat.name}</Text>
+                        {isTopCategory && (
+                          <View style={styles.topBadgeTag}>
+                            <Text style={styles.topBadgeTagText}>🏆 Mayor Gasto</Text>
+                          </View>
+                        )}
                       </View>
                       <Text style={styles.dashboardCategoryAmount}>
                         {formatCurrency(cat.spent)} / {formatCurrency(cat.limit)}
                       </Text>
-                    </View>
+                    </TouchableOpacity>
                     
                     <View style={styles.miniProgressBarBg}>
                       <View
@@ -336,10 +525,37 @@ export default function DashboardScreen() {
                         ]}
                       />
                     </View>
-                    <Text style={[styles.remainingText, { color: progressColor }]}>
-                      {remaining > 0 ? `Quedan ${formatCurrency(remaining)}` : 'Límite alcanzado'}
-                    </Text>
-                  </TouchableOpacity>
+
+                    <View style={styles.dashboardCategoryBottomRow}>
+                      <Text style={[styles.remainingText, { color: progressColor }]}>
+                        {remaining > 0 ? `Quedan ${formatCurrency(remaining)}` : 'Límite alcanzado'}
+                      </Text>
+
+                      <TouchableOpacity
+                        style={[
+                          styles.limitReachedBtn,
+                          isLimitReached && styles.limitReachedBtnDisabled,
+                        ]}
+                        onPress={() => handleMarkLimitReached(cat)}
+                        activeOpacity={0.7}
+                      >
+                        <MaterialIcons
+                          name={isLimitReached ? 'check-circle' : 'flag'}
+                          size={14}
+                          color={isLimitReached ? '#775651' : '#84a59d'}
+                          style={{ marginRight: 4 }}
+                        />
+                        <Text
+                          style={[
+                            styles.limitReachedBtnText,
+                            isLimitReached && styles.limitReachedBtnTextDisabled,
+                          ]}
+                        >
+                          {isLimitReached ? 'Alcanzado' : 'Límite alcanzado'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
                 );
               })}
             </View>
@@ -348,37 +564,58 @@ export default function DashboardScreen() {
 
         {/* Recent Movimientos Card */}
         <View style={styles.glassCard}>
-          <View style={styles.recentHeader}>
-            <Text style={styles.sectionTitle}>Movimientos de este Mes</Text>
+          <View style={styles.recentHeaderRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.sectionTitle}>Movimientos de este Mes</Text>
+              <Text style={styles.sectionSubtitle}>Edita o elimina cualquier gasto registrado</Text>
+            </View>
+            {monthTransactions.length > 0 && (
+              <TouchableOpacity onPress={handleClearAllMonthTxs} style={styles.clearMonthBtn} activeOpacity={0.7}>
+                <MaterialIcons name="delete-sweep" size={16} color="#ba1a1a" style={{ marginRight: 4 }} />
+                <Text style={styles.clearMonthBtnText}>Vaciar Mes</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
-          {recentTransactions.length === 0 ? (
-            <Text style={styles.emptyText}>No hay movimientos en este mes.</Text>
+          {monthTransactions.length === 0 ? (
+            <Text style={styles.emptyText}>No hay movimientos registrados en este mes.</Text>
           ) : (
             <View style={styles.txList}>
-              {recentTransactions.map((tx) => {
+              {monthTransactions.map((tx) => {
                 const meta = getCategoryMeta(tx.category, tx.type);
                 const isExpense = tx.type === 'expense';
                 return (
-                  <View key={tx.id} style={styles.txItem}>
+                  <View key={tx.id} style={styles.txItemRow}>
                     <View style={styles.txItemLeft}>
                       <View style={[styles.categoryIconBg, { backgroundColor: meta.bg }]}>
                         <MaterialIcons name={meta.icon as any} size={20} color={meta.color} />
                       </View>
                       <View style={styles.txInfo}>
-                        <Text style={styles.txTitle}>{tx.description}</Text>
+                        <Text style={styles.txTitle} numberOfLines={1} ellipsizeMode="tail">{tx.description}</Text>
                         <Text style={styles.txDate}>{formatTxDate(tx.date)}</Text>
                       </View>
                     </View>
-                    <Text
-                      style={[
-                        styles.txAmount,
-                        { color: isExpense ? '#1e1b1a' : '#84a59d' },
-                      ]}
-                    >
-                      {isExpense ? '-' : '+'}
-                      {formatCurrency(tx.amount)}
-                    </Text>
+
+                    <View style={styles.txItemRightGroup}>
+                      <Text
+                        style={[
+                          styles.txAmount,
+                          { color: isExpense ? '#1e1b1a' : '#84a59d' },
+                        ]}
+                      >
+                        {isExpense ? '-' : '+'}
+                        {formatCurrency(tx.amount)}
+                      </Text>
+
+                      <View style={styles.txActionsGroup}>
+                        <TouchableOpacity onPress={() => handleOpenEditTx(tx)} style={styles.txActionIconBtn} activeOpacity={0.7}>
+                          <MaterialIcons name="edit" size={16} color="#504442" />
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => handleDeleteTx(tx)} style={styles.txActionIconBtn} activeOpacity={0.7}>
+                          <MaterialIcons name="delete" size={16} color="#ba1a1a" />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
                   </View>
                 );
               })}
@@ -411,7 +648,8 @@ export default function DashboardScreen() {
                   <TextInput
                     style={styles.actionInput}
                     placeholder="2000"
-                    keyboardType="numeric"
+                    keyboardType={Platform.OS === 'web' ? ('default' as any) : 'decimal-pad'}
+                    inputMode="decimal"
                     value={editedStartingBalance}
                     onChangeText={setEditedStartingBalance}
                     autoFocus
@@ -488,7 +726,8 @@ export default function DashboardScreen() {
                   style={styles.amountInput}
                   placeholder="0.00"
                   placeholderTextColor="#efe6e5"
-                  keyboardType="decimal-pad"
+                  keyboardType={Platform.OS === 'web' ? ('default' as any) : 'decimal-pad'}
+                  inputMode="decimal"
                   value={amount}
                   onChangeText={setAmount}
                   autoFocus
@@ -518,12 +757,8 @@ export default function DashboardScreen() {
                 {txType === 'expense' && (
                   <View style={styles.categorySelectSection}>
                     <Text style={styles.categorySectionLabel}>Categoría</Text>
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={styles.categoryChips}
-                    >
-                      {categoryBudgets.map((cat) => {
+                    <View style={styles.categoryWrapGrid}>
+                      {availableCategoryChips.map((cat) => {
                         const isSelected = category === cat.category;
                         return (
                           <TouchableOpacity
@@ -553,7 +788,7 @@ export default function DashboardScreen() {
                           </TouchableOpacity>
                         );
                       })}
-                    </ScrollView>
+                    </View>
                   </View>
                 )}
 
@@ -586,6 +821,100 @@ export default function DashboardScreen() {
         </View>
       </Modal>
 
+      {/* Modal - Editar Movimiento */}
+      <Modal animationType="slide" transparent={true} visible={editTxModalVisible}>
+        <View style={styles.modalOverlay}>
+          <SafeAreaView style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <TouchableOpacity onPress={() => setEditTxModalVisible(false)} style={styles.closeBtn}>
+                <MaterialIcons name="close" size={24} color="#504442" />
+              </TouchableOpacity>
+              <Text style={styles.modalHeaderTitle}>Editar Movimiento</Text>
+              <View style={{ width: 40 }} />
+            </View>
+
+            <ScrollView contentContainerStyle={styles.modalForm} keyboardShouldPersistTaps="handled">
+              <View style={styles.amountInputContainer}>
+                <Text style={styles.currencySymbol}>€</Text>
+                <TextInput
+                  style={styles.amountInput}
+                  placeholder="0.00"
+                  placeholderTextColor="#efe6e5"
+                  keyboardType={Platform.OS === 'web' ? ('default' as any) : 'decimal-pad'}
+                  inputMode="decimal"
+                  value={editTxAmount}
+                  onChangeText={setEditTxAmount}
+                />
+              </View>
+              <View style={styles.amountDivider} />
+
+              <View style={styles.formCard}>
+                <View style={styles.inputFieldGroup}>
+                  <View style={styles.fieldIconBg}>
+                    <MaterialIcons name="edit" size={20} color="#775651" />
+                  </View>
+                  <View style={styles.fieldInputs}>
+                    <Text style={styles.fieldLabel}>Concepto</Text>
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder="Ej. Compra de supermercado"
+                      placeholderTextColor="#e0d8d7"
+                      value={editTxDescription}
+                      onChangeText={setEditTxDescription}
+                    />
+                  </View>
+                </View>
+
+                {editTxType === 'expense' && (
+                  <>
+                    <View style={styles.fieldDivider} />
+                    <View style={styles.categorySelectSection}>
+                      <Text style={styles.categorySectionLabel}>Categoría</Text>
+                      <View style={styles.categoryWrapGrid}>
+                        {availableCategoryChips.map((cat) => {
+                          const isSelected = editTxCategory === cat.category;
+                          return (
+                            <TouchableOpacity
+                              key={cat.category}
+                              style={[
+                                styles.categoryChip,
+                                isSelected && {
+                                  backgroundColor: '#f5cac3',
+                                  borderColor: '#f5cac3',
+                                },
+                              ]}
+                              onPress={() => setEditTxCategory(cat.category)}
+                            >
+                              <MaterialIcons
+                                name={cat.icon as any}
+                                size={18}
+                                color={isSelected ? '#73534e' : cat.color}
+                              />
+                              <Text
+                                style={[
+                                  styles.categoryChipText,
+                                  isSelected && { color: '#73534e', fontWeight: 'bold' },
+                                ]}
+                              >
+                                {cat.name}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  </>
+                )}
+              </View>
+
+              <TouchableOpacity style={styles.saveButton} onPress={handleSaveEditTx}>
+                <Text style={styles.saveButtonText}>Guardar Cambios</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </SafeAreaView>
+        </View>
+      </Modal>
+
       {/* Modal - Editar Categoría desde el Dashboard */}
       <Modal animationType="slide" transparent={true} visible={catModalVisible}>
         <View style={styles.modalOverlay}>
@@ -594,7 +923,7 @@ export default function DashboardScreen() {
               <TouchableOpacity onPress={() => setCatModalVisible(false)} style={styles.closeBtn}>
                 <MaterialIcons name="close" size={24} color="#504442" />
               </TouchableOpacity>
-              <Text style={styles.modalHeaderTitle}>Modificar Presupuesto</Text>
+              <Text style={styles.modalHeaderTitle}>Presupuesto de Este Mes</Text>
               <View style={{ width: 40 }} />
             </View>
 
@@ -614,7 +943,8 @@ export default function DashboardScreen() {
                     style={[styles.textInput, { flex: 1 }]}
                     placeholder="100"
                     placeholderTextColor="#efe6e5"
-                    keyboardType="numeric"
+                    keyboardType={Platform.OS === 'web' ? ('default' as any) : 'decimal-pad'}
+                    inputMode="decimal"
                     value={catLimit}
                     onChangeText={setCatLimit}
                     autoFocus
@@ -657,6 +987,30 @@ export default function DashboardScreen() {
                 </View>
               </View>
 
+              <View style={styles.toggleRow}>
+                <View style={styles.toggleTextGroup}>
+                  <View style={styles.fieldIconBg}>
+                    <MaterialIcons name={catIsTemporary ? 'event' : 'event-available'} size={20} color="#775651" />
+                  </View>
+                  <View style={{ marginLeft: 12, flex: 1 }}>
+                    <Text style={styles.toggleTitle}>
+                      {catIsTemporary ? 'Categoría Temporal' : 'Categoría Fija'}
+                    </Text>
+                    <Text style={styles.toggleSubtitle}>
+                      {catIsTemporary
+                        ? 'Solo existe este mes (no se copiará a futuros meses)'
+                        : 'Plantilla fija (se mantiene para todos los meses)'}
+                    </Text>
+                  </View>
+                </View>
+                <Switch
+                  value={catIsTemporary}
+                  onValueChange={setCatIsTemporary}
+                  trackColor={{ false: '#e0d8d7', true: '#775651' }}
+                  thumbColor={catIsTemporary ? '#ffffff' : '#f4eceb'}
+                />
+              </View>
+
               <TouchableOpacity style={styles.saveBtn} onPress={handleSaveCategory}>
                 <Text style={styles.saveBtnText}>Guardar Cambios</Text>
               </TouchableOpacity>
@@ -695,7 +1049,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingBottom: 110,
+    paddingBottom: 140,
     gap: 20,
     paddingTop: 10,
   },
@@ -759,6 +1113,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 1.2,
     color: '#504442',
+    textAlign: 'center',
   },
   progressAmount: {
     fontFamily: 'Inter',
@@ -766,10 +1121,64 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#84a59d',
     marginTop: 4,
+    textAlign: 'center',
+  },
+  monthRequirementBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.55)',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginTop: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(80, 68, 66, 0.1)',
+  },
+  monthRequirementText: {
+    fontFamily: 'Inter',
+    fontSize: 13,
+    color: '#504442',
   },
   goalIndicatorContainer: {
     width: '100%',
-    marginTop: 10,
+    marginTop: 16,
+  },
+  budgetMetricsGrid: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(255, 255, 255, 0.45)',
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(80, 68, 66, 0.08)',
+  },
+  budgetMetricBox: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  metricBoxLabel: {
+    fontFamily: 'Inter',
+    fontSize: 10,
+    color: '#504442',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+    marginBottom: 2,
+    textAlign: 'center',
+  },
+  metricBoxValue: {
+    fontFamily: 'Inter',
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#775651',
+  },
+  metricBoxDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: 'rgba(80, 68, 66, 0.12)',
   },
   goalBulletRow: {
     flexDirection: 'row',
@@ -864,9 +1273,12 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   dashboardCategoryLeft: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    marginRight: 8,
+    minWidth: 0,
   },
   miniIconBg: {
     width: 28,
@@ -880,12 +1292,133 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#1e1b1a',
+    flexShrink: 1,
+  },
+  topBadgeTag: {
+    backgroundColor: 'rgba(212, 163, 115, 0.2)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    marginLeft: 6,
+  },
+  topBadgeTagText: {
+    fontFamily: 'Inter',
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#775651',
+  },
+  topCategoryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  topCategoryIconBg: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  topCategoryTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  topCategorySubtitle: {
+    fontFamily: 'Inter',
+    fontSize: 11,
+    color: '#504442',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    fontWeight: '600',
+  },
+  trophyIcon: {
+    fontSize: 12,
+  },
+  topCategoryName: {
+    fontFamily: 'Inter',
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#1e1b1a',
+    marginTop: 2,
+    flexShrink: 1,
+  },
+  topCategoryBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    flexShrink: 0,
+  },
+  topCategoryBadgeText: {
+    fontFamily: 'Inter',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  topCategoryPercentText: {
+    fontFamily: 'Inter',
+    fontSize: 12,
+    color: '#504442',
+    marginTop: 10,
+    lineHeight: 16,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  totalLimitsBadge: {
+    backgroundColor: 'rgba(132, 165, 157, 0.15)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    alignItems: 'flex-end',
+  },
+  totalLimitsBadgeLabel: {
+    fontFamily: 'Inter',
+    fontSize: 9,
+    color: '#504442',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  totalLimitsBadgeValue: {
+    fontFamily: 'Inter',
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#775651',
   },
   dashboardCategoryAmount: {
     fontFamily: 'Inter',
     fontSize: 13,
     fontWeight: '600',
     color: '#504442',
+    flexShrink: 0,
+  },
+  dashboardCategoryBottomRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 6,
+  },
+  limitReachedBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(132, 165, 157, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  limitReachedBtnDisabled: {
+    backgroundColor: 'rgba(119, 86, 81, 0.12)',
+  },
+  limitReachedBtnText: {
+    fontFamily: 'Inter',
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#84a59d',
+  },
+  limitReachedBtnTextDisabled: {
+    color: '#775651',
   },
   miniProgressBarBg: {
     height: 6,
@@ -909,7 +1442,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
+  },
+  recentHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  clearMonthBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(186, 26, 26, 0.1)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  clearMonthBtnText: {
+    fontFamily: 'Inter',
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#ba1a1a',
   },
   emptyText: {
     fontFamily: 'Inter',
@@ -919,7 +1472,7 @@ const styles = StyleSheet.create({
     marginVertical: 12,
   },
   txList: {
-    gap: 12,
+    gap: 4,
   },
   txItem: {
     flexDirection: 'row',
@@ -929,10 +1482,38 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.2)',
   },
+  txItemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.2)',
+  },
   txItemLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    flex: 1,
+    flexShrink: 1,
+    marginRight: 8,
+  },
+  txItemRightGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexShrink: 0,
+  },
+  txActionsGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginLeft: 4,
+  },
+  txActionIconBtn: {
+    padding: 6,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
   },
   categoryIconBg: {
     width: 40,
@@ -940,8 +1521,11 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
+    flexShrink: 0,
   },
   txInfo: {
+    flex: 1,
+    flexShrink: 1,
     gap: 2,
   },
   txTitle: {
@@ -949,6 +1533,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: '#1e1b1a',
+    flexShrink: 1,
   },
   txDate: {
     fontFamily: 'Inter',
@@ -1122,6 +1707,12 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 4,
   },
+  categoryWrapGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+  },
   categoryChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1214,13 +1805,14 @@ const styles = StyleSheet.create({
   },
   colorPalette: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 4,
+    flexWrap: 'wrap',
+    gap: 12,
+    paddingVertical: 6,
   },
   colorCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     borderWidth: 2,
     borderColor: 'transparent',
   },
@@ -1231,8 +1823,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
-    paddingVertical: 4,
-    justifyContent: 'space-between',
+    paddingVertical: 6,
   },
   iconCircle: {
     width: 44,

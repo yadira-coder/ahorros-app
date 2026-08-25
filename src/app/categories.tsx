@@ -9,11 +9,14 @@ import {
   TouchableOpacity,
   Modal,
   TextInput,
+  Platform,
+  Switch,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSavings, CategoryBudget } from '@/context/SavingsContext';
 import { Header } from '@/components/Header';
 import { customAlert, customConfirm } from '@/utils/alert';
+import { parseFormattedAmount } from '@/utils/format';
 
 export default function CategoriesScreen() {
   const {
@@ -29,22 +32,44 @@ export default function CategoriesScreen() {
   const [limit, setLimit] = useState('');
   const [color, setColor] = useState('#84a59d');
   const [icon, setIcon] = useState('restaurant');
+  const [isTemporary, setIsTemporary] = useState(false);
 
-  const colorsList = ['#84a59d', '#f5cac3', '#f6bd60', '#f28482', '#775651', '#ba1a1a'];
+  const colorsList = [
+    '#84a59d',
+    '#f5cac3',
+    '#f6bd60',
+    '#f28482',
+    '#775651',
+    '#ba1a1a',
+    '#b8b8ff',
+    '#b27092',
+    '#bcb8b1',
+    '#a2d2ff',
+    '#d4a373',
+  ];
   
   const iconsList = [
-    'restaurant',
-    'home',
-    'directions-car',
-    'shopping-bag',
-    'confirmation-number',
-    'fitness-center',
-    'movie',
-    'school',
-    'medical-services',
-    'flight',
-    'work',
-    'local-grocery-store',
+    'pets',                 // Perro / Mascota
+    'medication',           // Suplementos alimenticios
+    'tv',                   // Plataformas TV / Streaming
+    'wifi',                 // Internet
+    'smoking-rooms',        // Tabaco
+    'celebration',          // Festivo
+    'medical-services',     // Médico
+    'favorite',             // Corazón
+    'warning',              // Imprevistos
+    'restaurant',           // Comida
+    'home',                 // Hogar
+    'directions-car',       // Transporte
+    'shopping-bag',         // Compras
+    'confirmation-number',  // Ocio
+    'fitness-center',       // Gimnasio
+    'movie',                // Cine
+    'school',               // Educación
+    'flight',               // Viajes
+    'work',                 // Trabajo
+    'savings',              // Huchas
+    'build',                // Reparaciones / Imprevistos
   ];
 
   const formatCurrency = (val: number) => {
@@ -63,6 +88,8 @@ export default function CategoriesScreen() {
         return 'Movilidad';
       case 'shopping':
         return 'Shopping';
+      case 'pets':
+        return 'Mascotas';
       default:
         return 'General';
     }
@@ -74,6 +101,7 @@ export default function CategoriesScreen() {
     setLimit('');
     setColor('#84a59d');
     setIcon('restaurant');
+    setIsTemporary(false);
     setModalVisible(true);
   };
 
@@ -83,24 +111,30 @@ export default function CategoriesScreen() {
     setLimit(cat.limit.toString());
     setColor(cat.color);
     setIcon(cat.icon);
+    setIsTemporary(!!cat.isTemporary);
     setModalVisible(true);
   };
 
   const handleSaveCategory = async () => {
-    const numLimit = parseFloat(limit);
-    if (!name.trim() || isNaN(numLimit) || numLimit <= 0) {
+    const numLimit = parseFormattedAmount(limit);
+    if (!name.trim() || numLimit <= 0) {
       customAlert('Error', 'Por favor introduce un nombre y presupuesto válidos.');
       return;
     }
 
     if (editingCategory) {
-      // Update existing
-      await updateCategory(editingCategory.category, {
-        name: name.trim(),
-        limit: numLimit,
-        color,
-        icon,
-      });
+      // Update existing globally across all months
+      await updateCategory(
+        editingCategory.category,
+        {
+          name: name.trim(),
+          limit: numLimit,
+          color,
+          icon,
+          isTemporary,
+        },
+        'global' // Update global template across all months
+      );
     } else {
       // Create new
       // Generate key safely
@@ -118,6 +152,7 @@ export default function CategoriesScreen() {
         limit: numLimit,
         color,
         icon,
+        isTemporary,
       });
     }
 
@@ -145,7 +180,7 @@ export default function CategoriesScreen() {
       <Header />
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Screen Title */}
+        {/* Title Section */}
         <View style={styles.titleSection}>
           <Text style={styles.pageTitle}>Categorías</Text>
           <Text style={styles.pageSubtitle}>Controla tus límites de gastos por área este mes.</Text>
@@ -187,12 +222,19 @@ export default function CategoriesScreen() {
                     <View style={[styles.iconBg, { backgroundColor: badgeBg }]}>
                       <MaterialIcons name={item.icon as any} size={22} color={progressColor} />
                     </View>
-                    <View>
-                      <Text style={styles.categoryName}>{item.name}</Text>
-                      <View style={[styles.tagBadge, { backgroundColor: badgeBg }]}>
-                        <Text style={[styles.tagBadgeText, { color: progressColor }]}>
-                          {getCategoryTag(item.category)}
-                        </Text>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={styles.categoryName} numberOfLines={1} ellipsizeMode="tail">{item.name}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginTop: 2 }}>
+                        <View style={[styles.tagBadge, { backgroundColor: badgeBg }]}>
+                          <Text style={[styles.tagBadgeText, { color: progressColor }]} numberOfLines={1}>
+                            {getCategoryTag(item.category)}
+                          </Text>
+                        </View>
+                        {item.isTemporary && (
+                          <View style={styles.tempBadgeTag}>
+                            <Text style={styles.tempBadgeTagText}>⏳ Temporal</Text>
+                          </View>
+                        )}
                       </View>
                     </View>
                   </View>
@@ -247,7 +289,7 @@ export default function CategoriesScreen() {
                 <MaterialIcons name="close" size={24} color="#504442" />
               </TouchableOpacity>
               <Text style={styles.modalHeaderTitle}>
-                {editingCategory ? 'Editar Categoría' : 'Crear Nueva Categoría'}
+                {editingCategory ? 'Editar Categoría Global' : 'Crear Nueva Categoría'}
               </Text>
               <View style={{ width: 40 }} />
             </View>
@@ -284,7 +326,8 @@ export default function CategoriesScreen() {
                     style={[styles.textInput, { flex: 1 }]}
                     placeholder="100"
                     placeholderTextColor="#efe6e5"
-                    keyboardType="numeric"
+                    keyboardType={Platform.OS === 'web' ? ('default' as any) : 'decimal-pad'}
+                    inputMode="decimal"
                     value={limit}
                     onChangeText={setLimit}
                   />
@@ -326,6 +369,31 @@ export default function CategoriesScreen() {
                     </TouchableOpacity>
                   ))}
                 </View>
+              </View>
+
+              {/* Temporary Toggle */}
+              <View style={styles.toggleRow}>
+                <View style={styles.toggleTextGroup}>
+                  <View style={styles.fieldIconBg}>
+                    <MaterialIcons name={isTemporary ? 'event' : 'event-available'} size={20} color="#775651" />
+                  </View>
+                  <View style={{ marginLeft: 12, flex: 1 }}>
+                    <Text style={styles.toggleTitle}>
+                      {isTemporary ? 'Categoría Temporal' : 'Categoría Fija'}
+                    </Text>
+                    <Text style={styles.toggleSubtitle}>
+                      {isTemporary
+                        ? 'Solo existe este mes (no se copiará a futuros meses)'
+                        : 'Plantilla fija (se mantiene para todos los meses)'}
+                    </Text>
+                  </View>
+                </View>
+                <Switch
+                  value={isTemporary}
+                  onValueChange={setIsTemporary}
+                  trackColor={{ false: '#e0d8d7', true: '#775651' }}
+                  thumbColor={isTemporary ? '#ffffff' : '#f4eceb'}
+                />
               </View>
 
               {/* Save Button */}
@@ -405,7 +473,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingBottom: 110,
+    paddingBottom: 140,
   },
   titleSection: {
     marginVertical: 24,
@@ -444,9 +512,12 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   cardHeaderLeft: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
+    marginRight: 8,
+    minWidth: 0,
   },
   iconBg: {
     width: 48,
@@ -476,6 +547,7 @@ const styles = StyleSheet.create({
   cardActions: {
     flexDirection: 'row',
     gap: 8,
+    flexShrink: 0,
   },
   actionBtn: {
     padding: 6,
@@ -630,13 +702,14 @@ const styles = StyleSheet.create({
   },
   colorPalette: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 4,
+    flexWrap: 'wrap',
+    gap: 12,
+    paddingVertical: 6,
   },
   colorCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     borderWidth: 2,
     borderColor: 'transparent',
   },
@@ -647,8 +720,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
-    paddingVertical: 4,
-    justifyContent: 'space-between',
+    paddingVertical: 6,
   },
   iconCircle: {
     width: 44,
@@ -677,5 +749,54 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#ffffff',
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(80, 68, 66, 0.1)',
+    marginVertical: 4,
+  },
+  toggleTextGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 8,
+  },
+  fieldIconBg: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(119, 86, 81, 0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  toggleTitle: {
+    fontFamily: 'Inter',
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1e1b1a',
+  },
+  toggleSubtitle: {
+    fontFamily: 'Inter',
+    fontSize: 11,
+    color: '#504442',
+    marginTop: 2,
+  },
+  tempBadgeTag: {
+    backgroundColor: 'rgba(242, 132, 130, 0.2)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  tempBadgeTagText: {
+    fontFamily: 'Inter',
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#ba1a1a',
   },
 });

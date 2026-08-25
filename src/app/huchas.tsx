@@ -9,11 +9,13 @@ import {
   TouchableOpacity,
   Modal,
   TextInput,
+  Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSavings, SavingGoal } from '@/context/SavingsContext';
 import { Header } from '@/components/Header';
 import { customAlert, customConfirm } from '@/utils/alert';
+import { parseFormattedAmount } from '@/utils/format';
 
 export default function HuchasScreen() {
   const {
@@ -37,7 +39,19 @@ export default function HuchasScreen() {
   const [actionAmount, setActionAmount] = useState('');
   const [selectedGoal, setSelectedGoal] = useState<SavingGoal | null>(null);
 
-  const colorsList = ['#84a59d', '#f5cac3', '#f6bd60', '#f28482', '#775651', '#ba1a1a'];
+  const colorsList = [
+    '#84a59d',
+    '#f5cac3',
+    '#f6bd60',
+    '#f28482',
+    '#775651',
+    '#ba1a1a',
+    '#b8b8ff',
+    '#b27092',
+    '#bcb8b1',
+    '#a2d2ff',
+    '#d4a373',
+  ];
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(val);
@@ -60,8 +74,8 @@ export default function HuchasScreen() {
   };
 
   const handleSaveGoal = async () => {
-    const numTarget = parseFloat(target);
-    if (!title.trim() || isNaN(numTarget) || numTarget <= 0) {
+    const numTarget = parseFormattedAmount(target);
+    if (!title.trim() || numTarget <= 0) {
       customAlert('Error', 'Por favor introduce un nombre y meta válidos.');
       return;
     }
@@ -102,8 +116,8 @@ export default function HuchasScreen() {
   };
 
   const handleExecuteAction = async () => {
-    const amount = parseFloat(actionAmount);
-    if (isNaN(amount) || amount <= 0) {
+    const amount = parseFormattedAmount(actionAmount);
+    if (amount <= 0) {
       customAlert('Error', 'Introduce una cantidad válida.');
       return;
     }
@@ -164,8 +178,8 @@ export default function HuchasScreen() {
                       <View style={[styles.pigIconBg, { backgroundColor: `${goal.color}22` }]}>
                         <MaterialIcons name="savings" size={24} color={goal.color} />
                       </View>
-                      <View>
-                        <Text style={styles.goalTitle}>{goal.title}</Text>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={styles.goalTitle} numberOfLines={1} ellipsizeMode="tail">{goal.title}</Text>
                         <Text style={styles.goalRatio}>
                           {formatCurrency(goal.current)} de {formatCurrency(goal.target)}
                         </Text>
@@ -285,7 +299,8 @@ export default function HuchasScreen() {
                     style={[styles.textInput, { flex: 1 }]}
                     placeholder="2000"
                     placeholderTextColor="#efe6e5"
-                    keyboardType="numeric"
+                    keyboardType={Platform.OS === 'web' ? ('default' as any) : 'decimal-pad'}
+                    inputMode="decimal"
                     value={target}
                     onChangeText={setTarget}
                   />
@@ -337,7 +352,8 @@ export default function HuchasScreen() {
               <TextInput
                 style={styles.actionInput}
                 placeholder="0.00"
-                keyboardType="numeric"
+                keyboardType={Platform.OS === 'web' ? ('default' as any) : 'decimal-pad'}
+                inputMode="decimal"
                 value={actionAmount}
                 onChangeText={setActionAmount}
                 autoFocus
@@ -442,7 +458,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingBottom: 110,
+    paddingBottom: 140,
   },
   titleSection: {
     marginVertical: 24,
@@ -516,9 +532,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   cardHeaderLeft: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    marginRight: 8,
+    minWidth: 0,
   },
   pigIconBg: {
     width: 44,
@@ -542,6 +561,7 @@ const styles = StyleSheet.create({
   cardActions: {
     flexDirection: 'row',
     gap: 8,
+    flexShrink: 0,
   },
   actionBtn: {
     padding: 6,
@@ -709,13 +729,14 @@ const styles = StyleSheet.create({
   },
   colorPalette: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 4,
+    flexWrap: 'wrap',
+    gap: 12,
+    paddingVertical: 6,
   },
   colorCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     borderWidth: 2,
     borderColor: 'transparent',
   },
