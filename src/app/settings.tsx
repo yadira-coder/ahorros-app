@@ -17,8 +17,9 @@ import { customAlert, customConfirm } from '@/utils/alert';
 import { parseFormattedAmount } from '@/utils/format';
 
 export default function SettingsScreen() {
-  const { savingGoal, updateMonthlyGoal, resetDatabase } = useSavings();
+  const { savingGoal, updateMonthlyGoal, resetDatabase, monthlyIncome, updateMonthlyIncome } = useSavings();
   const [newGoal, setNewGoal] = useState(savingGoal.toString());
+  const [incomeInput, setIncomeInput] = useState(monthlyIncome.toString());
 
   const handleUpdateGoal = async () => {
     const numGoal = parseFormattedAmount(newGoal);
@@ -28,6 +29,16 @@ export default function SettingsScreen() {
     }
     await updateMonthlyGoal(numGoal);
     customAlert('Meta Actualizada', `Tu meta mensual de ahorro ahora es de ${formatCurrency(numGoal)}.`);
+  };
+
+  const handleUpdateIncome = async () => {
+    const numIncome = parseFormattedAmount(incomeInput);
+    if (numIncome <= 0) {
+      customAlert('Error', 'Por favor introduce un importe de nómina válido.');
+      return;
+    }
+    await updateMonthlyIncome(numIncome);
+    customAlert('Nómina Guardada', `Tu ingreso mensual por nómina ahora es de ${formatCurrency(numIncome)}. Aparecerá como saldo inicial por defecto en tus nuevos meses.`);
   };
 
   const handleForceUpdateApp = () => {
@@ -55,6 +66,7 @@ export default function SettingsScreen() {
       async () => {
         await resetDatabase();
         setNewGoal('500');
+        setIncomeInput('1300');
         customAlert('Restablecido', 'La base de datos ha sido restablecida.');
       }
     );
@@ -75,6 +87,34 @@ export default function SettingsScreen() {
       <Header />
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {/* Ingreso Mensual por Nómina Card */}
+        <View style={styles.glassCard}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+            <MaterialIcons name="account-balance-wallet" size={22} color="#84a59d" style={{ marginRight: 8 }} />
+            <Text style={styles.cardTitle}>Ingreso Mensual por Nómina</Text>
+          </View>
+          <Text style={styles.cardSubtitle}>
+            Indica el dinero que recibes mensualmente en tu nómina (por ejemplo: 1.300,00 €). Este saldo se asignará por defecto a cada mes.
+          </Text>
+
+          <View style={styles.inputContainer}>
+            <Text style={styles.currencySymbol}>€</Text>
+            <TextInput
+              style={styles.textInput}
+              keyboardType={Platform.OS === 'web' ? ('default' as any) : 'decimal-pad'}
+              inputMode="decimal"
+              value={incomeInput}
+              onChangeText={setIncomeInput}
+              placeholder="1300"
+              placeholderTextColor="#e0d8d7"
+            />
+          </View>
+
+          <TouchableOpacity style={[styles.saveBtn, { backgroundColor: '#84a59d' }]} onPress={handleUpdateIncome}>
+            <Text style={styles.saveBtnText}>Guardar Nómina</Text>
+          </TouchableOpacity>
+        </View>
+
         {/* Goal adjustment card */}
         <View style={styles.glassCard}>
           <Text style={styles.cardTitle}>Meta de Ahorro Mensual</Text>

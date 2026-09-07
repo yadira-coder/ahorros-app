@@ -26,6 +26,7 @@ export default function DashboardScreen() {
   const {
     balance,
     startingBalance,
+    monthlyIncome,
     transactions,
     addTransaction,
     updateTransaction,
@@ -38,6 +39,8 @@ export default function DashboardScreen() {
     updateCategory,
     updateStartingBalance,
     toggleCategoryLimitReached,
+    savingGoals,
+    updateSavingGoalProgress,
   } = useSavings();
 
   // Transaction Modal state
@@ -99,6 +102,10 @@ export default function DashboardScreen() {
 
   // Spent progress percentage
   const spentProgress = Math.max(0, Math.min(100, Math.round((monthExpenses / (startingBalance || 1)) * 100)));
+
+  // Smart Plan Calculations
+  const remainingPayrollForSavings = Math.max(0, monthlyIncome - totalCategoryLimits);
+  const isOverBudget = totalCategoryLimits > monthlyIncome;
 
   const colorsList = [
     '#84a59d',
@@ -229,16 +236,8 @@ export default function DashboardScreen() {
 
   const handleSaveStartingBalance = async () => {
     const numBalance = parseFormattedAmount(editedStartingBalance);
-    if (numBalance < 0) {
-      customAlert('Error', 'Introduce una cantidad de presupuesto válida.');
-      return;
-    }
-
-    if (numBalance < totalCategoryLimits) {
-      customAlert(
-        'Presupuesto Insuficiente',
-        `No puedes establecer un saldo mensual de ${formatCurrency(numBalance)} porque es menor que la suma de los presupuestos de tus categorías (${formatCurrency(totalCategoryLimits)}).\n\nAumenta el saldo o edita los límites de tus categorías.`
-      );
+    if (isNaN(numBalance) || numBalance < 0) {
+      customAlert('Error', 'Introduce una cantidad de presupuesto disponible válida.');
       return;
     }
 
@@ -393,6 +392,105 @@ export default function DashboardScreen() {
               </View>
             </View>
           </TouchableOpacity>
+        </View>
+
+        {/* Plan Inteligente del Mes Card */}
+        <View style={[styles.glassCard, { borderColor: remainingPayrollForSavings > 0 ? 'rgba(132, 165, 157, 0.4)' : 'rgba(242, 132, 130, 0.4)' }]}>
+          <View style={styles.cardHeaderRow}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+              <View style={[styles.smartPlanIconBg, { backgroundColor: remainingPayrollForSavings > 0 ? 'rgba(132, 165, 157, 0.15)' : 'rgba(242, 132, 130, 0.15)' }]}>
+                <MaterialIcons name="auto-awesome" size={22} color={remainingPayrollForSavings > 0 ? '#84a59d' : '#f28482'} />
+              </View>
+              <View style={{ flex: 1, marginLeft: 10 }}>
+                <Text style={styles.cardLabel}>Plan Inteligente del Mes</Text>
+                <Text style={styles.cardSublabel}>Planificación según tu nómina de {formatCurrency(monthlyIncome)}</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Smart Plan Summary Grid */}
+          <View style={styles.smartPlanGrid}>
+            <View style={styles.smartPlanBox}>
+              <Text style={styles.smartPlanBoxLabel}>💼 Nómina Mensual</Text>
+              <Text style={styles.smartPlanBoxValue}>{formatCurrency(monthlyIncome)}</Text>
+            </View>
+
+            <View style={styles.smartPlanBox}>
+              <Text style={styles.smartPlanBoxLabel}>🛒 Necesario del Mes</Text>
+              <Text style={[styles.smartPlanBoxValue, { color: '#775651' }]}>{formatCurrency(totalCategoryLimits)}</Text>
+            </View>
+
+            <View style={[styles.smartPlanBox, { backgroundColor: remainingPayrollForSavings > 0 ? 'rgba(132, 165, 157, 0.12)' : 'rgba(242, 132, 130, 0.12)', borderColor: remainingPayrollForSavings > 0 ? '#84a59d' : '#f28482' }]}>
+              <Text style={styles.smartPlanBoxLabel}>🐷 Restante para Huchas</Text>
+              <Text style={[styles.smartPlanBoxValue, { color: remainingPayrollForSavings > 0 ? '#84a59d' : '#ba1a1a', fontWeight: '700' }]}>
+                {formatCurrency(monthlyIncome - totalCategoryLimits)}
+              </Text>
+            </View>
+          </View>
+
+          {/* Smart Advice Banner */}
+          {isOverBudget ? (
+            <View style={styles.smartAdviceWarning}>
+              <MaterialIcons name="warning" size={18} color="#ba1a1a" style={{ marginRight: 8 }} />
+              <Text style={styles.smartAdviceWarningText}>
+                Tus presupuestos por categorías ({formatCurrency(totalCategoryLimits)}) superan tu nómina ({formatCurrency(monthlyIncome)}). Ajusta algunos límites para liberar saldo sobrante para ahorros.
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.smartAdviceSuccess}>
+              <MaterialIcons name="tips-and-updates" size={18} color="#84a59d" style={{ marginRight: 8 }} />
+              <Text style={styles.smartAdviceSuccessText}>
+                {remainingPayrollForSavings > 0
+                  ? `Tras cubrir los ${formatCurrency(totalCategoryLimits)} necesarios para hacer el mes, dispones de ${formatCurrency(remainingPayrollForSavings)} de tu nómina para añadir a tus huchas.`
+                  : `Tus presupuestos cubren exactamente el 100% de tu nómina (${formatCurrency(monthlyIncome)}).`}
+              </Text>
+            </View>
+          )}
+
+          {/* Huchas Allocation Recommendations */}
+          {!isOverBudget && remainingPayrollForSavings > 0 && (
+            <View style={{ marginTop: 14 }}>
+              <Text style={styles.smartHuchasTitle}>Reparto Sugerido para tus Huchas</Text>
+              {savingGoals.length === 0 ? (
+                <Text style={styles.smartHuchasEmptyText}>
+                  Aún no tienes huchas de ahorro creadas. Puedes ir a la pestaña "Huchas" para añadir metas y asignar estos {formatCurrency(remainingPayrollForSavings)} sobrantes.
+                </Text>
+              ) : (
+                <View style={{ gap: 8, marginTop: 8 }}>
+                  {savingGoals.map((goal) => {
+                    const remainingGoal = Math.max(0, goal.target - goal.current);
+                    const suggestedShare = Number((remainingPayrollForSavings / savingGoals.length).toFixed(2));
+                    const recommendedDeposit = Math.min(remainingGoal, suggestedShare);
+
+                    return (
+                      <View key={goal.id} style={styles.smartHuchaRow}>
+                        <View style={[styles.smartHuchaIconBg, { backgroundColor: `${goal.color}22` }]}>
+                          <MaterialIcons name={goal.icon as any} size={18} color={goal.color} />
+                        </View>
+                        <View style={{ flex: 1, marginHorizontal: 8 }}>
+                          <Text style={styles.smartHuchaName}>{goal.title}</Text>
+                          <Text style={styles.smartHuchaSub}>
+                            Faltan: {formatCurrency(remainingGoal)} • Sugerido este mes: <Text style={{ fontWeight: '700', color: goal.color }}>+{formatCurrency(recommendedDeposit)}</Text>
+                          </Text>
+                        </View>
+                        {recommendedDeposit > 0 && (
+                          <TouchableOpacity
+                            style={[styles.smartDepositBtn, { backgroundColor: goal.color }]}
+                            onPress={async () => {
+                              await updateSavingGoalProgress(goal.id, recommendedDeposit);
+                              customAlert('Ahorro Guardado', `Se han añadido ${formatCurrency(recommendedDeposit)} a la hucha "${goal.title}".`);
+                            }}
+                          >
+                            <Text style={styles.smartDepositBtnText}>Aportar</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
+          )}
         </View>
 
         {/* Flujo de Caja Card */}
@@ -1930,6 +2028,127 @@ const styles = StyleSheet.create({
   modalConfirmBtnText: {
     fontFamily: 'Inter',
     fontSize: 14,
+    fontWeight: '600',
+    color: '#ffffff',
+  },
+  // Smart Plan styles
+  smartPlanIconBg: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  smartPlanGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 14,
+  },
+  smartPlanBox: {
+    flex: 1,
+    minWidth: 100,
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(80, 68, 66, 0.1)',
+  },
+  smartPlanBoxLabel: {
+    fontFamily: 'Inter',
+    fontSize: 11,
+    color: '#504442',
+    fontWeight: '500',
+    marginBottom: 4,
+  },
+  smartPlanBoxValue: {
+    fontFamily: 'Inter',
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1e1b1a',
+  },
+  smartAdviceWarning: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(186, 26, 26, 0.1)',
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(186, 26, 26, 0.2)',
+  },
+  smartAdviceWarningText: {
+    flex: 1,
+    fontFamily: 'Inter',
+    fontSize: 12,
+    color: '#ba1a1a',
+    lineHeight: 16,
+  },
+  smartAdviceSuccess: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(132, 165, 157, 0.12)',
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(132, 165, 157, 0.25)',
+  },
+  smartAdviceSuccessText: {
+    flex: 1,
+    fontFamily: 'Inter',
+    fontSize: 12,
+    color: '#3d5a52',
+    lineHeight: 16,
+  },
+  smartHuchasTitle: {
+    fontFamily: 'Inter',
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1e1b1a',
+  },
+  smartHuchasEmptyText: {
+    fontFamily: 'Inter',
+    fontSize: 12,
+    color: '#504442',
+    fontStyle: 'italic',
+    marginTop: 4,
+  },
+  smartHuchaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+    borderRadius: 12,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(80, 68, 66, 0.1)',
+  },
+  smartHuchaIconBg: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  smartHuchaName: {
+    fontFamily: 'Inter',
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1e1b1a',
+  },
+  smartHuchaSub: {
+    fontFamily: 'Inter',
+    fontSize: 11,
+    color: '#504442',
+  },
+  smartDepositBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  smartDepositBtnText: {
+    fontFamily: 'Inter',
+    fontSize: 12,
     fontWeight: '600',
     color: '#ffffff',
   },

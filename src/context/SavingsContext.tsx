@@ -56,6 +56,8 @@ export interface SavingGoal {
 interface SavingsContextType {
   balance: number; // Remaining spending balance: startingBalance - totalExpenses
   startingBalance: number; // Configurable initial spending balance
+  monthlyIncome: number; // Configured monthly payroll / income (default 1300€)
+  updateMonthlyIncome: (amount: number) => Promise<void>;
   savingGoal: number; // Monthly savings target
   savingsAmount: number; // Total saved in active month (reference)
   initialAccumulatedSavings: number; // Initial base savings set by user
@@ -139,6 +141,7 @@ export const SavingsProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [monthlyBudgets, setMonthlyBudgets] = useState<{[month: string]: CategoryBudget[]}>({});
   const [monthlyStartingBalances, setMonthlyStartingBalances] = useState<{[month: string]: number}>({});
+  const [monthlyIncome, setMonthlyIncome] = useState<number>(1300); // Configured payroll (default 1300€)
   const [savingGoals, setSavingGoals] = useState<SavingGoal[]>([]);
   const [wishlist, setWishlist] = useState<WishlistItem[]>([]);
   const [plannedExpenses, setPlannedExpenses] = useState<PlannedExpense[]>([]);
@@ -156,7 +159,8 @@ export const SavingsProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const data = JSON.parse(jsonValue);
           setTransactions(data.transactions || []);
           setMonthlyBudgets(data.monthlyBudgets || { '2026-08': INITIAL_BUDGETS });
-          setMonthlyStartingBalances(data.monthlyStartingBalances || { '2026-08': 1268 });
+          setMonthlyStartingBalances(data.monthlyStartingBalances || { '2026-08': 1300 });
+          setMonthlyIncome(data.monthlyIncome !== undefined ? data.monthlyIncome : 1300);
           setSavingGoals(data.savingGoals || []);
           setWishlist(data.wishlist || []);
           setPlannedExpenses(data.plannedExpenses || []);
@@ -164,12 +168,13 @@ export const SavingsProvider: React.FC<{ children: React.ReactNode }> = ({ child
           setInitialAccumulatedSavings(data.initialAccumulatedSavings || 0);
           setCurrentMonthState(data.currentMonth || '2026-08');
         } else {
-          // Fresh setup starting August 2026 with default starting balance 1268€
+          // Fresh setup starting August 2026 with default starting balance 1300€ and payroll 1300€
           const initialBudgets = { '2026-08': INITIAL_BUDGETS };
-          const initialStartingBalances = { '2026-08': 1268 };
+          const initialStartingBalances = { '2026-08': 1300 };
           setTransactions([]);
           setMonthlyBudgets(initialBudgets);
           setMonthlyStartingBalances(initialStartingBalances);
+          setMonthlyIncome(1300);
           setSavingGoals([]);
           setWishlist([]);
           setPlannedExpenses([]);
@@ -177,7 +182,7 @@ export const SavingsProvider: React.FC<{ children: React.ReactNode }> = ({ child
           setInitialAccumulatedSavings(0);
           setCurrentMonthState('2026-08');
           
-          await saveData([], initialBudgets, initialStartingBalances, [], 500, 0, '2026-08', [], []);
+          await saveData([], initialBudgets, initialStartingBalances, [], 500, 0, '2026-08', [], [], 1300);
         }
       } catch (e) {
         console.error('Failed to load data from storage', e);
@@ -198,13 +203,15 @@ export const SavingsProvider: React.FC<{ children: React.ReactNode }> = ({ child
     updatedInitialAccumulated: number,
     month: string,
     updatedWishlist: WishlistItem[] = wishlist,
-    updatedPlannedExpenses: PlannedExpense[] = plannedExpenses
+    updatedPlannedExpenses: PlannedExpense[] = plannedExpenses,
+    updatedMonthlyIncome: number = monthlyIncome
   ) => {
     try {
       const dataToSave = {
         transactions: updatedTxs,
         monthlyBudgets: updatedMonthlyBudgets,
         monthlyStartingBalances: updatedStartingBalances,
+        monthlyIncome: updatedMonthlyIncome,
         savingGoals: updatedGoals,
         savingGoal: updatedMonthlyGoal,
         initialAccumulatedSavings: updatedInitialAccumulated,
@@ -216,6 +223,22 @@ export const SavingsProvider: React.FC<{ children: React.ReactNode }> = ({ child
     } catch (e) {
       console.error('Failed to save data', e);
     }
+  };
+
+  const updateMonthlyIncome = async (amount: number) => {
+    setMonthlyIncome(amount);
+    await saveData(
+      transactions,
+      monthlyBudgets,
+      monthlyStartingBalances,
+      savingGoals,
+      savingGoal,
+      initialAccumulatedSavings,
+      currentMonth,
+      wishlist,
+      plannedExpenses,
+      amount
+    );
   };
 
   // Change currentMonth and copy starting balances + categories if new
@@ -244,10 +267,9 @@ export const SavingsProvider: React.FC<{ children: React.ReactNode }> = ({ child
       updatedMonthlyBudgets[month] = existingInTarget;
     }
 
-    // 2. Default starting balance automatically equals total category limits for that month
-    const targetCategoryLimits = updatedMonthlyBudgets[month].reduce((sum, b) => sum + (b.limit || 0), 0);
-    if (updatedStartingBalances[month] === undefined || updatedStartingBalances[month] < targetCategoryLimits) {
-      updatedStartingBalances[month] = targetCategoryLimits;
+    // 2. Default starting balance automatically equals configured payroll (monthlyIncome) if missing
+    if (updatedStartingBalances[month] === undefined) {
+      updatedStartingBalances[month] = monthlyIncome || 1300;
     }
 
     setCurrentMonthState(month);
@@ -263,9 +285,9 @@ export const SavingsProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Total sum of category budget limits for the current month
   const totalCategoryLimits = categoryBudgets.reduce((sum, b) => sum + (b.limit || 0), 0);
 
-  // Default starting balance automatically equals total category limits if not set or if less
+  // Starting balance: If set explicitly for month, use it directly (allowing values lower than category limits). Otherwise fallback to monthlyIncome (1300€).
   const rawStartingBalance = monthlyStartingBalances[currentMonth];
-  const startingBalance = rawStartingBalance !== undefined ? Math.max(rawStartingBalance, totalCategoryLimits) : (totalCategoryLimits || 1268);
+  const startingBalance = rawStartingBalance !== undefined ? rawStartingBalance : (monthlyIncome || 1300);
 
   // Top spending category in current month
   const topSpendingCategory = React.useMemo(() => {
@@ -908,17 +930,18 @@ export const SavingsProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const resetDatabase = async () => {
     const initialBudgets = { '2026-08': INITIAL_BUDGETS };
-    const initialStartingBalances = { '2026-08': 1500 };
+    const initialStartingBalances = { '2026-08': 1300 };
     setTransactions([]);
     setMonthlyBudgets(initialBudgets);
     setMonthlyStartingBalances(initialStartingBalances);
+    setMonthlyIncome(1300);
     setSavingGoals([]);
     setWishlist([]);
     setPlannedExpenses([]);
     setSavingGoal(500);
     setInitialAccumulatedSavings(0);
     setCurrentMonthState('2026-08');
-    await saveData([], initialBudgets, initialStartingBalances, [], 500, 0, '2026-08', [], []);
+    await saveData([], initialBudgets, initialStartingBalances, [], 500, 0, '2026-08', [], [], 1300);
   };
 
   return (
@@ -926,6 +949,8 @@ export const SavingsProvider: React.FC<{ children: React.ReactNode }> = ({ child
       value={{
         balance,
         startingBalance,
+        monthlyIncome,
+        updateMonthlyIncome,
         savingGoal,
         savingsAmount,
         initialAccumulatedSavings,
