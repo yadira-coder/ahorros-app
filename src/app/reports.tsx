@@ -52,10 +52,14 @@ export default function ReportsScreen() {
     addPlannedExpense,
     updatePlannedExpense,
     deletePlannedExpense,
+    updateCategory,
   } = useSavings();
 
   const [accumulatedModalVisible, setAccumulatedModalVisible] = useState(false);
   const [editedAccumulated, setEditedAccumulated] = useState('');
+
+  // Expense Study Period State
+  const [studyPeriod, setStudyPeriod] = useState<'quarterly' | 'semiannual' | 'annual'>('quarterly');
 
   // Planned Expenses State
   const [plannedModalVisible, setPlannedModalVisible] = useState(false);
@@ -63,12 +67,14 @@ export default function ReportsScreen() {
   const [plannedTitle, setPlannedTitle] = useState('');
   const [plannedAmount, setPlannedAmount] = useState('');
   const [plannedMonth, setPlannedMonth] = useState('2026-10'); // e.g. Octubre 2026
+  const [plannedFrequency, setPlannedFrequency] = useState<'one_time' | 'quarterly' | 'annual'>('one_time');
 
   const handleOpenAddPlanned = () => {
     setEditingPlanned(null);
     setPlannedTitle('');
     setPlannedAmount('');
-    setPlannedMonth('2026-10');
+    setPlannedMonth(currentMonth || '2026-10');
+    setPlannedFrequency('one_time');
     setPlannedModalVisible(true);
   };
 
@@ -77,6 +83,7 @@ export default function ReportsScreen() {
     setPlannedTitle(exp.title);
     setPlannedAmount(exp.amount.toString());
     setPlannedMonth(exp.targetMonth);
+    setPlannedFrequency(exp.frequency || 'one_time');
     setPlannedModalVisible(true);
   };
 
@@ -92,16 +99,19 @@ export default function ReportsScreen() {
         title: plannedTitle.trim(),
         amount: numAmt,
         targetMonth: plannedMonth,
+        frequency: plannedFrequency,
       });
     } else {
       await addPlannedExpense({
         title: plannedTitle.trim(),
         amount: numAmt,
         targetMonth: plannedMonth,
+        frequency: plannedFrequency,
       });
+      const freqLabel = plannedFrequency === 'quarterly' ? 'de forma trimestral (cada 3 meses)' : plannedFrequency === 'annual' ? 'de forma anual (cada 12 meses)' : 'puntualmente';
       customAlert(
         'Gasto Previsto Creado',
-        `Se ha programado "${plannedTitle.trim()}" para ${plannedMonth}. Se creará automáticamente la Categoría Temporal por valor de ${formatCurrency(numAmt)} en dicho mes.`
+        `Se ha programado "${plannedTitle.trim()}" ${freqLabel} desde ${plannedMonth}. Se creará automáticamente la Categoría Temporal por valor de ${formatCurrency(numAmt)} en dichos meses.`
       );
     }
 
@@ -230,6 +240,106 @@ export default function ReportsScreen() {
     }
 
     return projections;
+  };
+
+  // Compute Expense Analysis for selected studyPeriod (3, 6, or 12 months)
+  const getExpenseStudyAnalysis = () => {
+    const periodMonthsCount = studyPeriod === 'quarterly' ? 3 : studyPeriod === 'semiannual' ? 6 : 12;
+    const [yearStr, monthStr] = currentMonth.split('-');
+    let year = parseInt(yearStr);
+    let monthIdx = parseInt(monthStr) - 1; // 0-indexed
+
+    const periodMonthsCodes: string[] = [];
+    for (let i = periodMonthsCount - 1; i >= 0; i--) {
+      let pYear = year;
+      let pMonthIdx = monthIdx - i;
+      while (pMonthIdx < 0) {
+        pMonthIdx += 12;
+        pYear -= 1;
+      }
+      periodMonthsCodes.push(`${pYear}-${String(pMonthIdx + 1).padStart(2, '0')}`);
+    }
+
+    // Filter transactions in period
+    const periodTxs = transactions.filter(
+      (tx) => tx.type === 'expense' && periodMonthsCodes.includes(tx.date.substring(0, 7))
+    );
+
+    const totalPeriodExpenses = periodTxs.reduce((sum, tx) => sum + tx.amount, 0);
+
+    // Group expenses by category
+    const categoryTotalsMap: { [catKey: string]: { name: string; color: string; icon: string; totalSpent: number } } = {};
+
+    periodTxs.forEach((tx) => {
+      const catKey = tx.category || 'other';
+      if (!categoryTotalsMap[catKey]) {
+        const matchBud = categoryBudgets.find((b) => b.category === catKey);
+        categoryTotalsMap[catKey] = {
+          name: matchBud ? matchBud.name : (catKey === 'other' ? 'Otros / General' : catKey),
+          color: matchBud ? matchBud.color : '#775651',
+          icon: matchBud ? matchBud.icon : 'more-horiz',
+          totalSpent: 0,
+        };
+      }
+      categoryTotalsMap[catKey].totalSpent += tx.amount;
+    });
+
+    // Also include active categories that might have 0 spent to evaluate their limits
+    categoryBudgets.forEach((bud) => {
+      if (!categoryTotalsMap[bud.category]) {
+        categoryTotalsMap[bud.category] = {
+          name: bud.name,
+          color: bud.color,
+          icon: bud.icon,
+          totalSpent: 0,
+        };
+      }
+    });
+
+    const categoryAnalysisList = Object.keys(categoryTotalsMap).map((catKey) => {
+      const item = categoryTotalsMap[catKey];
+      const matchBud = categoryBudgets.find((b) => b.category === catKey);
+      const currentLimit = matchBud ? matchBud.limit : 0;
+      const avgMonthlySpent = Number((item.totalSpent / periodMonthsCount).toFixed(2));
+      const diff = Number((avgMonthlySpent - currentLimit).toFixed(2));
+
+      const recommendedLimit = avgMonthlySpent > 0 ? Math.max(10, Math.round(avgMonthlySpent / 5) * 5) : currentLimit;
+
+      let status: 'over' | 'under' | 'aligned' = 'aligned';
+      let adviceText = '';
+
+      if (currentLimit > 0 && avgMonthlySpent > currentLimit + 5) {
+        status = 'over';
+        adviceText = `Superas tu límite por ${formatCurrency(avgMonthlySpent - currentLimit)}/mes de media. Se aconseja subir el límite a ${formatCurrency(recommendedLimit)} para reflejar tu gasto real.`;
+      } else if (currentLimit > 0 && currentLimit - avgMonthlySpent > 15) {
+        status = 'under';
+        adviceText = `Gastas ${formatCurrency(currentLimit - avgMonthlySpent)}/mes menos de lo reservado. Se aconseja reducir el límite a ${formatCurrency(recommendedLimit)} y liberar la diferencia para tu ahorro.`;
+      } else {
+        status = 'aligned';
+        adviceText = `Tu presupuesto de ${formatCurrency(currentLimit)} refleja con precisión tu gasto real medio (${formatCurrency(avgMonthlySpent)}/mes).`;
+      }
+
+      return {
+        categoryKey: catKey,
+        name: item.name,
+        color: item.color,
+        icon: item.icon,
+        totalSpent: item.totalSpent,
+        avgMonthlySpent,
+        currentLimit,
+        diff,
+        recommendedLimit,
+        status,
+        adviceText,
+        percentage: totalPeriodExpenses > 0 ? Math.round((item.totalSpent / totalPeriodExpenses) * 100) : 0,
+      };
+    }).sort((a, b) => b.totalSpent - a.totalSpent);
+
+    return {
+      periodMonthsCount,
+      totalPeriodExpenses,
+      categoryAnalysisList,
+    };
   };
 
   const formatCurrency = (val: number) => {
@@ -478,6 +588,135 @@ export default function ReportsScreen() {
           )}
         </View>
 
+        {/* Estudio de Gastos y Ajuste Inteligente Card */}
+        <View style={styles.glassCard}>
+          <View style={styles.chartHeader}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.chartTitle}>Estudio de Gastos y Ajuste Inteligente</Text>
+              <Text style={styles.chartSubtitle}>
+                Análisis del gasto real medio para ajustar tus presupuestos a la realidad
+              </Text>
+            </View>
+          </View>
+
+          {/* Period Filter Buttons */}
+          <View style={{ flexDirection: 'row', backgroundColor: 'rgba(255, 255, 255, 0.4)', borderRadius: 12, padding: 4, marginVertical: 12, borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.2)' }}>
+            <TouchableOpacity
+              style={[{ flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8 }, studyPeriod === 'quarterly' && { backgroundColor: '#775651' }]}
+              onPress={() => setStudyPeriod('quarterly')}
+            >
+              <Text style={[{ fontFamily: 'Inter', fontSize: 13, fontWeight: '600', color: '#504442' }, studyPeriod === 'quarterly' && { color: '#ffffff' }]}>
+                3 Meses (Trimestral)
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[{ flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8 }, studyPeriod === 'semiannual' && { backgroundColor: '#775651' }]}
+              onPress={() => setStudyPeriod('semiannual')}
+            >
+              <Text style={[{ fontFamily: 'Inter', fontSize: 13, fontWeight: '600', color: '#504442' }, studyPeriod === 'semiannual' && { color: '#ffffff' }]}>
+                6 Meses (Semestral)
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[{ flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8 }, studyPeriod === 'annual' && { backgroundColor: '#775651' }]}
+              onPress={() => setStudyPeriod('annual')}
+            >
+              <Text style={[{ fontFamily: 'Inter', fontSize: 13, fontWeight: '600', color: '#504442' }, studyPeriod === 'annual' && { color: '#ffffff' }]}>
+                12 Meses (Anual)
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Analysis Results List */}
+          {(() => {
+            const { periodMonthsCount, totalPeriodExpenses, categoryAnalysisList } = getExpenseStudyAnalysis();
+            const periodLabel = studyPeriod === 'quarterly' ? 'últimos 3 meses' : studyPeriod === 'semiannual' ? 'últimos 6 meses' : 'último año';
+
+            if (totalPeriodExpenses === 0) {
+              return (
+                <View style={styles.emptyHistoryCard}>
+                  <MaterialIcons name="insights" size={32} color="#bcb8b1" />
+                  <Text style={styles.emptyHistoryTitle}>Sin datos de gastos en los {periodLabel}</Text>
+                  <Text style={styles.emptyHistorySubtitle}>Añade movimientos de gastos para generar el estudio inteligente de desvíos.</Text>
+                </View>
+              );
+            }
+
+            return (
+              <View style={{ gap: 14 }}>
+                <View style={{ backgroundColor: 'rgba(132, 165, 157, 0.12)', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: 'rgba(132, 165, 157, 0.25)' }}>
+                  <Text style={{ fontFamily: 'Inter', fontSize: 13, color: '#3d5a52', lineHeight: 18 }}>
+                    📊 <Text style={{ fontWeight: '700' }}>Gasto total en {periodLabel}:</Text> {formatCurrency(totalPeriodExpenses)} (Media de {formatCurrency(totalPeriodExpenses / periodMonthsCount)}/mes).
+                  </Text>
+                </View>
+
+                {categoryAnalysisList.map((cat) => (
+                  <View key={cat.categoryKey} style={{ backgroundColor: 'rgba(255, 255, 255, 0.55)', borderRadius: 14, padding: 12, borderWidth: 1, borderColor: 'rgba(80, 68, 66, 0.1)', gap: 8 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                        <View style={[styles.miniIconBg, { backgroundColor: `${cat.color}22` }]}>
+                          <MaterialIcons name={cat.icon as any} size={16} color={cat.color} />
+                        </View>
+                        <Text style={{ fontFamily: 'Inter', fontSize: 14, fontWeight: '600', color: '#1e1b1a' }}>{cat.name}</Text>
+                      </View>
+                      <Text style={{ fontFamily: 'Inter', fontSize: 13, fontWeight: '700', color: '#1e1b1a' }}>
+                        {formatCurrency(cat.avgMonthlySpent)} <Text style={{ fontSize: 11, fontWeight: '400', color: '#504442' }}>/mes</Text>
+                      </Text>
+                    </View>
+
+                    {/* Compare with current limit */}
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={{ fontFamily: 'Inter', fontSize: 12, color: '#504442' }}>
+                        Total acumulado: {formatCurrency(cat.totalSpent)} ({cat.percentage}% del total)
+                      </Text>
+                      <Text style={{ fontFamily: 'Inter', fontSize: 12, color: '#504442' }}>
+                        Límite actual: {formatCurrency(cat.currentLimit)}
+                      </Text>
+                    </View>
+
+                    {/* Recommendation Box */}
+                    <View style={{
+                      backgroundColor: cat.status === 'over' ? 'rgba(186, 26, 26, 0.08)' : cat.status === 'under' ? 'rgba(246, 189, 96, 0.12)' : 'rgba(132, 165, 157, 0.08)',
+                      borderRadius: 10,
+                      padding: 10,
+                      borderWidth: 1,
+                      borderColor: cat.status === 'over' ? 'rgba(186, 26, 26, 0.2)' : cat.status === 'under' ? 'rgba(246, 189, 96, 0.3)' : 'rgba(132, 165, 157, 0.2)',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 8,
+                    }}>
+                      <MaterialIcons
+                        name={cat.status === 'over' ? 'warning' : cat.status === 'under' ? 'tips-and-updates' : 'check-circle'}
+                        size={18}
+                        color={cat.status === 'over' ? '#ba1a1a' : cat.status === 'under' ? '#d4a373' : '#84a59d'}
+                      />
+                      <Text style={{ flex: 1, fontFamily: 'Inter', fontSize: 12, color: '#1e1b1a', lineHeight: 16 }}>
+                        {cat.adviceText}
+                      </Text>
+
+                      {cat.status !== 'aligned' && (
+                        <TouchableOpacity
+                          style={{ backgroundColor: cat.status === 'over' ? '#ba1a1a' : '#84a59d', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}
+                          onPress={async () => {
+                            await updateCategory(cat.categoryKey, { limit: cat.recommendedLimit }, 'global');
+                            customAlert('Presupuesto Actualizado', `Se ha ajustado el límite de "${cat.name}" a ${formatCurrency(cat.recommendedLimit)} para ser fiel al gasto real.`);
+                          }}
+                        >
+                          <Text style={{ fontFamily: 'Inter', fontSize: 11, fontWeight: '600', color: '#ffffff' }}>
+                            Ajustar a {formatCurrency(cat.recommendedLimit)}
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  </View>
+                ))}
+              </View>
+            );
+          })()}
+        </View>
+
         {/* Planned Expenses Section (Gastos Previstos Futuros) */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 24, marginBottom: 12 }}>
           <Text style={styles.sectionTitle}>Gastos Previstos Futuros</Text>
@@ -510,7 +749,19 @@ export default function ReportsScreen() {
                     <MaterialIcons name="event" size={20} color="#775651" />
                   </View>
                   <View>
-                    <Text style={styles.templateName}>{item.title}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={styles.templateName}>{item.title}</Text>
+                      {item.frequency === 'quarterly' && (
+                        <View style={{ backgroundColor: 'rgba(246, 189, 96, 0.3)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                          <Text style={{ fontFamily: 'Inter', fontSize: 10, fontWeight: '700', color: '#775651' }}>🔄 Trimestral</Text>
+                        </View>
+                      )}
+                      {item.frequency === 'annual' && (
+                        <View style={{ backgroundColor: 'rgba(132, 165, 157, 0.3)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                          <Text style={{ fontFamily: 'Inter', fontSize: 10, fontWeight: '700', color: '#3d5a52' }}>📅 Anual</Text>
+                        </View>
+                      )}
+                    </View>
                     <Text style={styles.templateCategory}>Programado para: {item.targetMonth}</Text>
                   </View>
                 </View>
@@ -657,7 +908,7 @@ export default function ReportsScreen() {
 
               <View style={{ gap: 4 }}>
                 <Text style={{ fontFamily: 'Inter', fontSize: 11, color: '#504442', textTransform: 'uppercase', fontWeight: '600' }}>
-                  Mes Objetivo (AAAA-MM)
+                  Mes Objetivo / Inicio (AAAA-MM)
                 </Text>
                 <TextInput
                   style={{ backgroundColor: 'rgba(255, 255, 255, 0.6)', borderWidth: 1, borderColor: 'rgba(80, 68, 66, 0.15)', borderRadius: 12, paddingHorizontal: 14, height: 46, fontFamily: 'Inter', fontSize: 15, color: '#1e1b1a' }}
@@ -666,6 +917,34 @@ export default function ReportsScreen() {
                   value={plannedMonth}
                   onChangeText={setPlannedMonth}
                 />
+              </View>
+
+              <View style={{ gap: 4 }}>
+                <Text style={{ fontFamily: 'Inter', fontSize: 11, color: '#504442', textTransform: 'uppercase', fontWeight: '600' }}>
+                  Frecuencia de Repetición
+                </Text>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TouchableOpacity
+                    style={[{ flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(80,68,66,0.15)', backgroundColor: 'rgba(255,255,255,0.5)' }, plannedFrequency === 'one_time' && { backgroundColor: '#775651', borderColor: '#775651' }]}
+                    onPress={() => setPlannedFrequency('one_time')}
+                  >
+                    <Text style={[{ fontFamily: 'Inter', fontSize: 12, color: '#504442', fontWeight: '600' }, plannedFrequency === 'one_time' && { color: '#ffffff' }]}>Puntual</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[{ flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(80,68,66,0.15)', backgroundColor: 'rgba(255,255,255,0.5)' }, plannedFrequency === 'quarterly' && { backgroundColor: '#775651', borderColor: '#775651' }]}
+                    onPress={() => setPlannedFrequency('quarterly')}
+                  >
+                    <Text style={[{ fontFamily: 'Inter', fontSize: 12, color: '#504442', fontWeight: '600' }, plannedFrequency === 'quarterly' && { color: '#ffffff' }]}>🔄 Trimestral</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[{ flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(80,68,66,0.15)', backgroundColor: 'rgba(255,255,255,0.5)' }, plannedFrequency === 'annual' && { backgroundColor: '#775651', borderColor: '#775651' }]}
+                    onPress={() => setPlannedFrequency('annual')}
+                  >
+                    <Text style={[{ fontFamily: 'Inter', fontSize: 12, color: '#504442', fontWeight: '600' }, plannedFrequency === 'annual' && { color: '#ffffff' }]}>📅 Anual</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
 
               <TouchableOpacity

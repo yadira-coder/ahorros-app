@@ -42,6 +42,7 @@ export interface PlannedExpense {
   targetMonth: string; // e.g. "2026-10"
   createdDate: string;
   categoryKey?: string;
+  frequency?: 'one_time' | 'quarterly' | 'annual';
 }
 
 export interface SavingGoal {
@@ -99,7 +100,7 @@ interface SavingsContextType {
   // Category management
   addCategory: (cat: Omit<CategoryBudget, 'spent'>) => Promise<void>;
   updateCategory: (categoryKey: string, updatedFields: Partial<CategoryBudget>, scope?: 'month' | 'global') => Promise<void>;
-  deleteCategory: (categoryKey: string) => Promise<void>;
+  deleteCategory: (categoryKey: string, scope?: 'month' | 'global') => Promise<void>;
   
   // Saving Goal (Huchas) management
   addSavingGoal: (goal: Omit<SavingGoal, 'id' | 'current'>) => Promise<void>;
@@ -252,19 +253,14 @@ export const SavingsProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const fixedMasterCategories = masterCategories.filter((c) => !c.isTemporary);
 
     if (!updatedMonthlyBudgets[month]) {
+      const referenceMonth = currentMonth && updatedMonthlyBudgets[currentMonth] ? currentMonth : Object.keys(updatedMonthlyBudgets)[0];
+      const masterCategories = updatedMonthlyBudgets[referenceMonth] || INITIAL_BUDGETS;
+      const fixedMasterCategories = masterCategories.filter((c) => !c.isTemporary);
+
       updatedMonthlyBudgets[month] = fixedMasterCategories.map((cat) => ({
         ...cat,
         spent: 0,
       }));
-    } else {
-      // Sync missing fixed category definitions
-      const existingInTarget = [...updatedMonthlyBudgets[month]];
-      fixedMasterCategories.forEach((mCat) => {
-        if (!existingInTarget.some((b) => b.category === mCat.category)) {
-          existingInTarget.push({ ...mCat, spent: 0 });
-        }
-      });
-      updatedMonthlyBudgets[month] = existingInTarget;
     }
 
     // 2. Default starting balance automatically equals configured payroll (monthlyIncome) if missing
@@ -609,18 +605,18 @@ export const SavingsProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await saveData(transactions, updatedMonthlyBudgets, monthlyStartingBalances, savingGoals, savingGoal, initialAccumulatedSavings, currentMonth);
   };
 
-  const deleteCategory = async (categoryKey: string) => {
+  const deleteCategory = async (categoryKey: string, scope: 'month' | 'global' = 'month') => {
     let updatedMonthlyBudgets = { ...monthlyBudgets };
     const currentCats = updatedMonthlyBudgets[currentMonth] || [];
     const catToDelete = currentCats.find((b) => b.category === categoryKey);
 
-    if (catToDelete?.isTemporary) {
-      // Temporary category: Delete ONLY from currentMonth
+    if (scope === 'month' || catToDelete?.isTemporary) {
+      // Delete ONLY from currentMonth
       if (updatedMonthlyBudgets[currentMonth]) {
         updatedMonthlyBudgets[currentMonth] = updatedMonthlyBudgets[currentMonth].filter((b) => b.category !== categoryKey);
       }
     } else {
-      // Fixed category: Delete across all months
+      // Global scope: Delete across ALL months
       Object.keys(updatedMonthlyBudgets).forEach((mKey) => {
         if (updatedMonthlyBudgets[mKey]) {
           updatedMonthlyBudgets[mKey] = updatedMonthlyBudgets[mKey].filter((b) => b.category !== categoryKey);
@@ -629,7 +625,7 @@ export const SavingsProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     const updatedTxs = transactions.map((tx) => {
-      if (tx.category === categoryKey) {
+      if (tx.category === categoryKey && (scope === 'global' || tx.date.substring(0, 7) === currentMonth)) {
         return { ...tx, category: 'other' };
       }
       return tx;
@@ -813,34 +809,58 @@ export const SavingsProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
   };
 
+  // Helper to generate recurring target months for planned expenses
+  const getTargetMonths = (startMonth: string, frequency?: 'one_time' | 'quarterly' | 'annual'): string[] => {
+    if (!frequency || frequency === 'one_time') return [startMonth];
+    const [yearStr, monthStr] = startMonth.split('-');
+    let year = parseInt(yearStr);
+    let month = parseInt(monthStr);
+
+    const months: string[] = [];
+    const count = frequency === 'quarterly' ? 4 : 2;
+    const step = frequency === 'quarterly' ? 3 : 12;
+
+    for (let i = 0; i < count; i++) {
+      const monthCode = `${year}-${String(month).padStart(2, '0')}`;
+      months.push(monthCode);
+      month += step;
+      while (month > 12) {
+        month -= 12;
+        year += 1;
+      }
+    }
+    return months;
+  };
+
   // Planned Expenses (Gastos Previstos Futuros) CRUD
   const addPlannedExpense = async (expense: Omit<PlannedExpense, 'id' | 'createdDate'>) => {
-    const categoryKey = `planned-${Date.now()}`;
-    const newExpense: PlannedExpense = {
-      ...expense,
-      id: Date.now().toString(),
-      createdDate: new Date().toISOString(),
-      categoryKey,
-    };
-
-    const updatedPlanned = [...plannedExpenses, newExpense];
-
-    // Automatically create a TEMPORARY category in targetMonth's budgets!
+    const targetMonthsList = getTargetMonths(expense.targetMonth, expense.frequency);
+    let updatedPlanned = [...plannedExpenses];
     let updatedMonthlyBudgets = { ...monthlyBudgets };
-    const targetMonth = expense.targetMonth;
-    const existingCats = updatedMonthlyBudgets[targetMonth] || INITIAL_BUDGETS.map((c) => ({ ...c, spent: 0 }));
 
-    const newTempCategory: CategoryBudget = {
-      name: expense.title,
-      category: categoryKey,
-      limit: expense.amount,
-      spent: 0,
-      color: '#775651',
-      icon: 'event',
-      isTemporary: true,
-    };
+    targetMonthsList.forEach((tMonth, index) => {
+      const categoryKey = `planned-${Date.now()}-${index}`;
+      const newExpense: PlannedExpense = {
+        ...expense,
+        targetMonth: tMonth,
+        id: `${Date.now()}-${index}`,
+        createdDate: new Date().toISOString(),
+        categoryKey,
+      };
+      updatedPlanned.push(newExpense);
 
-    updatedMonthlyBudgets[targetMonth] = [...existingCats, newTempCategory];
+      const existingCats = updatedMonthlyBudgets[tMonth] || INITIAL_BUDGETS.map((c) => ({ ...c, spent: 0 }));
+      const newTempCategory: CategoryBudget = {
+        name: expense.title,
+        category: categoryKey,
+        limit: expense.amount,
+        spent: 0,
+        color: expense.frequency === 'quarterly' ? '#f6bd60' : '#775651',
+        icon: expense.frequency === 'quarterly' ? 'fitness-center' : 'event',
+        isTemporary: true,
+      };
+      updatedMonthlyBudgets[tMonth] = [...existingCats, newTempCategory];
+    });
 
     setPlannedExpenses(updatedPlanned);
     setMonthlyBudgets(updatedMonthlyBudgets);

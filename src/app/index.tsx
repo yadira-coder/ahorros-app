@@ -37,6 +37,7 @@ export default function DashboardScreen() {
     topSpendingCategory,
     monthTransactions,
     updateCategory,
+    deleteCategory,
     updateStartingBalance,
     toggleCategoryLimitReached,
     savingGoals,
@@ -1112,6 +1113,32 @@ export default function DashboardScreen() {
               <TouchableOpacity style={styles.saveBtn} onPress={handleSaveCategory}>
                 <Text style={styles.saveBtnText}>Guardar Cambios</Text>
               </TouchableOpacity>
+
+              {editingCategory && (
+                <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
+                  <TouchableOpacity
+                    style={{ flex: 1, backgroundColor: 'rgba(186, 26, 26, 0.1)', borderRadius: 12, paddingVertical: 12, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(186, 26, 26, 0.25)' }}
+                    onPress={async () => {
+                      await deleteCategory(editingCategory.category, 'month');
+                      setCatModalVisible(false);
+                      customAlert('Categoría Borrada', `Se ha eliminado "${editingCategory.name}" únicamente de este mes.`);
+                    }}
+                  >
+                    <Text style={{ fontFamily: 'Inter', fontSize: 13, fontWeight: '600', color: '#ba1a1a' }}>Borrar este mes</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={{ flex: 1, backgroundColor: 'rgba(186, 26, 26, 0.15)', borderRadius: 12, paddingVertical: 12, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(186, 26, 26, 0.35)' }}
+                    onPress={async () => {
+                      await deleteCategory(editingCategory.category, 'global');
+                      setCatModalVisible(false);
+                      customAlert('Categoría Borrada', `Se ha eliminado "${editingCategory.name}" de todos los meses.`);
+                    }}
+                  >
+                    <Text style={{ fontFamily: 'Inter', fontSize: 13, fontWeight: '600', color: '#ba1a1a' }}>Borrar todos los meses</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </ScrollView>
           </SafeAreaView>
         </View>

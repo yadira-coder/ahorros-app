@@ -160,13 +160,24 @@ export default function CategoriesScreen() {
   };
 
   const handleDeleteCategory = (cat: CategoryBudget) => {
-    customConfirm(
-      'Eliminar Categoría',
-      `¿Estás seguro de que quieres eliminar la categoría "${cat.name}"? Los movimientos de esta categoría se marcarán como "Otros".`,
-      async () => {
-        await deleteCategory(cat.category);
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const choice = window.confirm(
+        `¿Deseas eliminar la categoría "${cat.name}" únicamente del mes actual?\n\n- Haz clic en [Aceptar] para borrar SOLO de este mes.\n- Haz clic en [Cancelar] para borrar de TODOS los meses.`
+      );
+      if (choice) {
+        deleteCategory(cat.category, 'month');
+      } else {
+        deleteCategory(cat.category, 'global');
       }
-    );
+    } else {
+      customConfirm(
+        'Eliminar Categoría',
+        `¿Deseas eliminar "${cat.name}" solo de este mes o de todos los meses?`,
+        async () => {
+          await deleteCategory(cat.category, 'month');
+        }
+      );
+    }
   };
 
   return (
@@ -402,6 +413,32 @@ export default function CategoriesScreen() {
                   {editingCategory ? 'Guardar Cambios' : 'Crear Categoría'}
                 </Text>
               </TouchableOpacity>
+
+              {editingCategory && (
+                <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
+                  <TouchableOpacity
+                    style={{ flex: 1, backgroundColor: 'rgba(186, 26, 26, 0.1)', borderRadius: 12, paddingVertical: 12, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(186, 26, 26, 0.25)' }}
+                    onPress={async () => {
+                      await deleteCategory(editingCategory.category, 'month');
+                      setModalVisible(false);
+                      customAlert('Categoría Borrada', `Se ha eliminado "${editingCategory.name}" únicamente de este mes.`);
+                    }}
+                  >
+                    <Text style={{ fontFamily: 'Inter', fontSize: 13, fontWeight: '600', color: '#ba1a1a' }}>Borrar este mes</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={{ flex: 1, backgroundColor: 'rgba(186, 26, 26, 0.15)', borderRadius: 12, paddingVertical: 12, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(186, 26, 26, 0.35)' }}
+                    onPress={async () => {
+                      await deleteCategory(editingCategory.category, 'global');
+                      setModalVisible(false);
+                      customAlert('Categoría Borrada', `Se ha eliminado "${editingCategory.name}" de todos los meses.`);
+                    }}
+                  >
+                    <Text style={{ fontFamily: 'Inter', fontSize: 13, fontWeight: '600', color: '#ba1a1a' }}>Borrar todos los meses</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </ScrollView>
           </SafeAreaView>
         </View>
