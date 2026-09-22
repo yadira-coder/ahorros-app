@@ -242,7 +242,7 @@ export default function ReportsScreen() {
     return projections;
   };
 
-  // Compute Expense Analysis for selected studyPeriod (3, 6, or 12 months)
+  // Compute Expense Analysis for selected studyPeriod (3, 6, or 12 months) ONLY for FIXED categories & recurring concept study
   const getExpenseStudyAnalysis = () => {
     const periodMonthsCount = studyPeriod === 'quarterly' ? 3 : studyPeriod === 'semiannual' ? 6 : 12;
     const [yearStr, monthStr] = currentMonth.split('-');
@@ -260,20 +260,27 @@ export default function ReportsScreen() {
       periodMonthsCodes.push(`${pYear}-${String(pMonthIdx + 1).padStart(2, '0')}`);
     }
 
-    // Filter transactions in period
+    // 1. Filter ONLY FIXED categories (excluding temporary ones)
+    const fixedCategoryBudgets = categoryBudgets.filter((bud) => !bud.isTemporary);
+    const fixedCategoryKeys = new Set(fixedCategoryBudgets.map((b) => b.category));
+
+    // Filter expense transactions belonging ONLY to fixed categories in period
     const periodTxs = transactions.filter(
-      (tx) => tx.type === 'expense' && periodMonthsCodes.includes(tx.date.substring(0, 7))
+      (tx) =>
+        tx.type === 'expense' &&
+        periodMonthsCodes.includes(tx.date.substring(0, 7)) &&
+        (fixedCategoryKeys.has(tx.category) || tx.category === 'other' || !tx.category)
     );
 
     const totalPeriodExpenses = periodTxs.reduce((sum, tx) => sum + tx.amount, 0);
 
-    // Group expenses by category
+    // 2. Group expenses by FIXED categories
     const categoryTotalsMap: { [catKey: string]: { name: string; color: string; icon: string; totalSpent: number } } = {};
 
     periodTxs.forEach((tx) => {
       const catKey = tx.category || 'other';
       if (!categoryTotalsMap[catKey]) {
-        const matchBud = categoryBudgets.find((b) => b.category === catKey);
+        const matchBud = fixedCategoryBudgets.find((b) => b.category === catKey);
         categoryTotalsMap[catKey] = {
           name: matchBud ? matchBud.name : (catKey === 'other' ? 'Otros / General' : catKey),
           color: matchBud ? matchBud.color : '#775651',
@@ -284,8 +291,8 @@ export default function ReportsScreen() {
       categoryTotalsMap[catKey].totalSpent += tx.amount;
     });
 
-    // Also include active categories that might have 0 spent to evaluate their limits
-    categoryBudgets.forEach((bud) => {
+    // Also include active fixed categories that might have 0 spent to evaluate their limits
+    fixedCategoryBudgets.forEach((bud) => {
       if (!categoryTotalsMap[bud.category]) {
         categoryTotalsMap[bud.category] = {
           name: bud.name,
@@ -298,7 +305,7 @@ export default function ReportsScreen() {
 
     const categoryAnalysisList = Object.keys(categoryTotalsMap).map((catKey) => {
       const item = categoryTotalsMap[catKey];
-      const matchBud = categoryBudgets.find((b) => b.category === catKey);
+      const matchBud = fixedCategoryBudgets.find((b) => b.category === catKey);
       const currentLimit = matchBud ? matchBud.limit : 0;
       const avgMonthlySpent = Number((item.totalSpent / periodMonthsCount).toFixed(2));
       const diff = Number((avgMonthlySpent - currentLimit).toFixed(2));
@@ -310,13 +317,13 @@ export default function ReportsScreen() {
 
       if (currentLimit > 0 && avgMonthlySpent > currentLimit + 5) {
         status = 'over';
-        adviceText = `Superas tu límite por ${formatCurrency(avgMonthlySpent - currentLimit)}/mes de media. Se aconseja subir el límite a ${formatCurrency(recommendedLimit)} para reflejar tu gasto real.`;
+        adviceText = `Superas tu límite fijo por ${formatCurrency(avgMonthlySpent - currentLimit)}/mes de media. Se aconseja subir el límite a ${formatCurrency(recommendedLimit)} para reflejar tu gasto real.`;
       } else if (currentLimit > 0 && currentLimit - avgMonthlySpent > 15) {
         status = 'under';
         adviceText = `Gastas ${formatCurrency(currentLimit - avgMonthlySpent)}/mes menos de lo reservado. Se aconseja reducir el límite a ${formatCurrency(recommendedLimit)} y liberar la diferencia para tu ahorro.`;
       } else {
         status = 'aligned';
-        adviceText = `Tu presupuesto de ${formatCurrency(currentLimit)} refleja con precisión tu gasto real medio (${formatCurrency(avgMonthlySpent)}/mes).`;
+        adviceText = `Tu presupuesto fijo de ${formatCurrency(currentLimit)} refleja con precisión tu gasto real medio (${formatCurrency(avgMonthlySpent)}/mes).`;
       }
 
       return {
@@ -335,10 +342,42 @@ export default function ReportsScreen() {
       };
     }).sort((a, b) => b.totalSpent - a.totalSpent);
 
+    // 3. Concept / Merchant Frequency Study (Gastos / Conceptos más repetidos como Stradivarius, Primor, Mercadona, etc.)
+    const conceptMap: { [conceptKey: string]: { concept: string; count: number; totalSpent: number; categoryName: string; color: string } } = {};
+
+    periodTxs.forEach((tx) => {
+      const conceptStr = tx.description ? tx.description.trim() : '';
+      if (!conceptStr) return;
+      const cKey = conceptStr.toLowerCase();
+
+      const catBud = fixedCategoryBudgets.find((b) => b.category === tx.category);
+
+      if (!conceptMap[cKey]) {
+        conceptMap[cKey] = {
+          concept: conceptStr,
+          count: 0,
+          totalSpent: 0,
+          categoryName: catBud ? catBud.name : 'General',
+          color: catBud ? catBud.color : '#775651',
+        };
+      }
+      conceptMap[cKey].count += 1;
+      conceptMap[cKey].totalSpent += tx.amount;
+    });
+
+    const topRecurringConcepts = Object.values(conceptMap)
+      .sort((a, b) => b.count - a.count || b.totalSpent - a.totalSpent)
+      .slice(0, 6)
+      .map((c) => ({
+        ...c,
+        avgMonthlySpent: Number((c.totalSpent / periodMonthsCount).toFixed(2)),
+      }));
+
     return {
       periodMonthsCount,
       totalPeriodExpenses,
       categoryAnalysisList,
+      topRecurringConcepts,
     };
   };
 
@@ -631,7 +670,7 @@ export default function ReportsScreen() {
 
           {/* Analysis Results List */}
           {(() => {
-            const { periodMonthsCount, totalPeriodExpenses, categoryAnalysisList } = getExpenseStudyAnalysis();
+            const { periodMonthsCount, totalPeriodExpenses, categoryAnalysisList, topRecurringConcepts } = getExpenseStudyAnalysis();
             const periodLabel = studyPeriod === 'quarterly' ? 'últimos 3 meses' : studyPeriod === 'semiannual' ? 'últimos 6 meses' : 'último año';
 
             if (totalPeriodExpenses === 0) {
@@ -639,7 +678,7 @@ export default function ReportsScreen() {
                 <View style={styles.emptyHistoryCard}>
                   <MaterialIcons name="insights" size={32} color="#bcb8b1" />
                   <Text style={styles.emptyHistoryTitle}>Sin datos de gastos en los {periodLabel}</Text>
-                  <Text style={styles.emptyHistorySubtitle}>Añade movimientos de gastos para generar el estudio inteligente de desvíos.</Text>
+                  <Text style={styles.emptyHistorySubtitle}>Añade movimientos de gastos en categorías fijas para generar el estudio inteligente de desvíos.</Text>
                 </View>
               );
             }
@@ -648,9 +687,72 @@ export default function ReportsScreen() {
               <View style={{ gap: 14 }}>
                 <View style={{ backgroundColor: 'rgba(132, 165, 157, 0.12)', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: 'rgba(132, 165, 157, 0.25)' }}>
                   <Text style={{ fontFamily: 'Inter', fontSize: 13, color: '#3d5a52', lineHeight: 18 }}>
-                    📊 <Text style={{ fontWeight: '700' }}>Gasto total en {periodLabel}:</Text> {formatCurrency(totalPeriodExpenses)} (Media de {formatCurrency(totalPeriodExpenses / periodMonthsCount)}/mes).
+                    📊 <Text style={{ fontWeight: '700' }}>Gasto total en categorías fijas ({periodLabel}):</Text> {formatCurrency(totalPeriodExpenses)} (Media de {formatCurrency(totalPeriodExpenses / periodMonthsCount)}/mes).
                   </Text>
                 </View>
+
+                {/* Section for Top Recurring Concepts / Stores */}
+                {topRecurringConcepts && topRecurringConcepts.length > 0 && (
+                  <View style={{ backgroundColor: 'rgba(255, 255, 255, 0.65)', borderRadius: 14, padding: 12, borderWidth: 1, borderColor: 'rgba(119, 86, 81, 0.15)', gap: 10 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <MaterialIcons name="repeat" size={18} color="#775651" />
+                      <Text style={{ fontFamily: 'Inter', fontSize: 14, fontWeight: '700', color: '#1e1b1a' }}>
+                        Establecimientos y Gastos Más Repetidos
+                      </Text>
+                    </View>
+                    <Text style={{ fontFamily: 'Inter', fontSize: 12, color: '#504442', lineHeight: 16 }}>
+                      Estudio de compras frecuentes en tiendas y marcas (ej. Stradivarius, Primor, Mercadona...):
+                    </Text>
+
+                    <View style={{ gap: 8 }}>
+                      {topRecurringConcepts.map((item, idx) => (
+                        <View
+                          key={item.concept + idx}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            backgroundColor: 'rgba(255, 255, 255, 0.85)',
+                            padding: 10,
+                            borderRadius: 10,
+                            borderWidth: 1,
+                            borderColor: 'rgba(80, 68, 66, 0.08)',
+                          }}
+                        >
+                          <View style={{ flex: 1, gap: 2 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <Text style={{ fontFamily: 'Inter', fontSize: 13, fontWeight: '700', color: '#1e1b1a' }}>
+                                {item.concept}
+                              </Text>
+                              <View style={{ backgroundColor: `${item.color}22`, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                                <Text style={{ fontFamily: 'Inter', fontSize: 10, fontWeight: '600', color: item.color }}>
+                                  {item.categoryName}
+                                </Text>
+                              </View>
+                            </View>
+                            <Text style={{ fontFamily: 'Inter', fontSize: 11, color: '#504442' }}>
+                              Repetido {item.count} {item.count === 1 ? 'vez' : 'veces'} en los {periodLabel}
+                            </Text>
+                          </View>
+
+                          <View style={{ alignItems: 'flex-end' }}>
+                            <Text style={{ fontFamily: 'Inter', fontSize: 13, fontWeight: '700', color: '#775651' }}>
+                              {formatCurrency(item.totalSpent)}
+                            </Text>
+                            <Text style={{ fontFamily: 'Inter', fontSize: 11, color: '#3d5a52', fontWeight: '600' }}>
+                              ~{formatCurrency(item.avgMonthlySpent)}/mes
+                            </Text>
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                )}
+
+                {/* Categories Budget Adjustment Recommendations Header */}
+                <Text style={{ fontFamily: 'Inter', fontSize: 13, fontWeight: '700', color: '#1e1b1a', marginTop: 4 }}>
+                  Ajuste de Presupuesto por Categorías Fijas:
+                </Text>
 
                 {categoryAnalysisList.map((cat) => (
                   <View key={cat.categoryKey} style={{ backgroundColor: 'rgba(255, 255, 255, 0.55)', borderRadius: 14, padding: 12, borderWidth: 1, borderColor: 'rgba(80, 68, 66, 0.1)', gap: 8 }}>
